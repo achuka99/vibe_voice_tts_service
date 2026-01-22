@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 from huggingface_hub import snapshot_download
 import torch
+import numpy as np
 from model_loader import load_vibevoice_model
 
 # Configure logging
@@ -265,18 +266,51 @@ async def text_to_speech(request: TTSRequest):
             
             # Extract audio information from the result
             if isinstance(result, dict):
+                audio_data = result.get('audio_data')
                 audio_file = result.get('audio_file')
                 duration = result.get('duration', 0)
             else:
                 # Backward compatibility for direct audio data
+                audio_data = result
                 audio_file = None
                 duration = len(result) / 24000 if hasattr(result, '__len__') else 0
             
-            return TTSResponse(
-                audio_path=audio_file,
-                duration=duration,
-                message="Audio generated successfully"
-            )
+            # Return audio file directly as downloadable response
+            if audio_data is not None:
+                import io
+                import wave
+                
+                # Create WAV file in memory
+                wav_buffer = io.BytesIO()
+                
+                # Convert audio to int16 format
+                if audio_data.max() > 1.0 or audio_data.min() < -1.0:
+                    audio_data = audio_data / np.max(np.abs(audio_data))
+                audio_int16 = (audio_data * 32767).astype(np.int16)
+                
+                # Write WAV to buffer
+                with wave.open(wav_buffer, 'wb') as wav_file:
+                    wav_file.setnchannels(1)  # Mono
+                    wav_file.setsampwidth(2)  # 16-bit
+                    wav_file.setframerate(24000)  # 24kHz
+                    wav_file.writeframes(audio_int16.tobytes())
+                
+                wav_buffer.seek(0)
+                
+                return StreamingResponse(
+                    io.BytesIO(wav_buffer.read()),
+                    media_type="audio/wav",
+                    headers={
+                        "Content-Disposition": f'attachment; filename="vibevoice_speech.wav"',
+                        "Content-Length": str(len(wav_buffer.getvalue()))
+                    }
+                )
+            else:
+                return TTSResponse(
+                    audio_path=audio_file,
+                    duration=duration,
+                    message="Audio generated successfully"
+                )
             
     except Exception as e:
         logger.error(f"TTS generation failed: {e}")
