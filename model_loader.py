@@ -367,14 +367,12 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                                 tokenizer=getattr(self.processor, 'text_tokenizer', None) or getattr(self.processor, 'tokenizer', None),
                                 all_prefilled_outputs=copy.deepcopy(cached_prompt),
                                 audio_streamer=audio_streamer,
-                                max_new_tokens=16384,  # Increased max token limit
+                                max_new_tokens=None,  # Exactly like official demo
                                 cfg_scale=cfg_scale,
                                 generation_config={
-                                    "do_sample": True,
-                                    "temperature": 1.0,
-                                    "top_p": 0.9,
-                                    "min_new_tokens": 1000,  # Ensure minimum generation
-                                    "early_stopping": False,  # Disable early stopping
+                                    "do_sample": True,  # Official demo uses do_sample parameter
+                                    "temperature": 1.0,  # Fixed like official demo
+                                    "top_p": 0.9,  # Fixed like official demo
                                 },
                                 verbose=False,
                                 refresh_negative=True,
