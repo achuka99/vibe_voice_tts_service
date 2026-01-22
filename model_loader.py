@@ -68,10 +68,34 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
             
             def generate(self, text: str, speaker_name: str = "Carter"):
                 """Generate audio from text"""
+                # Load voice preset for the speaker
+                voice_path = f"/app/vibevoice/demo/voices/streaming_model/{speaker_name.lower()}.pt"
+                try:
+                    import glob
+                    voice_files = glob.glob(f"/app/vibevoice/demo/voices/streaming_model/{speaker_name.lower()}*.pt")
+                    if voice_files:
+                        voice_path = voice_files[0]
+                    else:
+                        # Try to find any voice file
+                        voice_files = glob.glob("/app/vibevoice/demo/voices/streaming_model/*.pt")
+                        if voice_files:
+                            voice_path = voice_files[0]
+                            logger.warning(f"Speaker '{speaker_name}' not found, using default voice: {voice_path}")
+                        else:
+                            raise FileNotFoundError("No voice files found")
+                    
+                    cached_prompt = torch.load(voice_path, map_location=self.model.device, weights_only=False)
+                except Exception as e:
+                    logger.error(f"Failed to load voice preset: {e}")
+                    raise e
+                
                 # Process the text using the correct method
                 inputs = self.processor.process_input_with_cached_prompt(
                     text=text,
-                    return_tensors="pt"
+                    cached_prompt=cached_prompt,
+                    padding=True,
+                    return_tensors="pt",
+                    return_attention_mask=True
                 )
                 
                 # Move to model device
