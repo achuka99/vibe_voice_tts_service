@@ -289,7 +289,7 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                     logger.error(f"Traceback: {traceback.format_exc()}")
                     raise e
             
-            def generate_streaming(self, text: str, speaker_name: str = "Carter", cfg_scale: float = 1.5, inference_steps: int = 5):
+            def generate_streaming(self, text: str, speaker_name: str = "Carter", cfg_scale: float = 1.5, inference_steps: int = 20):
                 """Generate streaming audio from text using AudioStreamer"""
                 try:
                     logger.info(f"Starting streaming generation for: {text[:50]}...")
