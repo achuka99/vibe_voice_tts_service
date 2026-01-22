@@ -23,8 +23,62 @@ import logging
 from pathlib import Path
 import sys
 import os
+import numpy as np
+import uuid
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
+
+def save_audio_as_wav(audio_data, sample_rate=24000, output_dir="/output"):
+    """Save audio data as WAV file"""
+    try:
+        import scipy.io.wavfile as wavfile
+        
+        # Ensure output directory exists
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+        
+        # Generate unique filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        unique_id = str(uuid.uuid4())[:8]
+        filename = f"vibevoice_{timestamp}_{unique_id}.wav"
+        filepath = output_path / filename
+        
+        # Convert audio data to int16 format (16-bit PCM)
+        if audio_data.dtype != np.int16:
+            # Normalize to [-1, 1] range if needed
+            if audio_data.max() > 1.0 or audio_data.min() < -1.0:
+                audio_data = audio_data / np.max(np.abs(audio_data))
+            
+            # Convert to int16
+            audio_data_int16 = (audio_data * 32767).astype(np.int16)
+        else:
+            audio_data_int16 = audio_data
+        
+        # Save as WAV file
+        wavfile.write(str(filepath), sample_rate, audio_data_int16)
+        
+        logger.info(f"Audio saved to: {filepath}")
+        return str(filepath)
+        
+    except ImportError:
+        logger.warning("scipy not available, trying to save as raw audio")
+        # Fallback: save as raw numpy array
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        unique_id = str(uuid.uuid4())[:8]
+        filename = f"vibevoice_{timestamp}_{unique_id}.npy"
+        filepath = output_path / filename
+        
+        np.save(str(filepath), audio_data)
+        logger.info(f"Audio saved as numpy array to: {filepath}")
+        return str(filepath)
+        
+    except Exception as e:
+        logger.error(f"Failed to save audio: {e}")
+        return None
 
 def load_vibevoice_model(model_path: str, device: str = "cpu"):
     """
@@ -184,17 +238,28 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                             # Convert to float32 before converting to numpy
                             if audio_data.dtype == torch.bfloat16:
                                 audio_data = audio_data.float()
-                            return audio_data.cpu().numpy()
+                            audio_numpy = audio_data.cpu().numpy()
                         else:
-                            return audio_data
+                            audio_numpy = audio_data
                     elif hasattr(outputs, 'audio_values'):
                         audio_data = outputs.audio_values
                         if audio_data.dtype == torch.bfloat16:
                             audio_data = audio_data.float()
-                        return audio_data.cpu().numpy()
+                        audio_numpy = audio_data.cpu().numpy()
                     else:
                         logger.error(f"No audio found in output. Available attributes: {[attr for attr in dir(outputs) if not attr.startswith('_')]}")
                         raise AttributeError("No audio data found in model output")
+                    
+                    # Save audio as WAV file
+                    audio_file_path = save_audio_as_wav(audio_numpy)
+                    
+                    # Return both the audio data and the file path
+                    return {
+                        'audio_data': audio_numpy,
+                        'audio_file': audio_file_path,
+                        'sample_rate': 24000,
+                        'duration': len(audio_numpy) / 24000
+                    }
                     
                 except Exception as e:
                     logger.error(f"Error in generate method: {e}")

@@ -258,14 +258,24 @@ async def text_to_speech(request: TTSRequest):
             )
         else:
             # Generate complete audio
-            audio_data = model.generate(
+            result = model.generate(
                 text=request.text,
                 speaker_name=request.speaker_name
             )
             
+            # Extract audio information from the result
+            if isinstance(result, dict):
+                audio_file = result.get('audio_file')
+                duration = result.get('duration', 0)
+            else:
+                # Backward compatibility for direct audio data
+                audio_file = None
+                duration = len(result) / 24000 if hasattr(result, '__len__') else 0
+            
             return TTSResponse(
-                message="Audio generated successfully",
-                duration=len(audio_data) / 24000  # Assuming 24kHz sample rate
+                audio_path=audio_file,
+                duration=duration,
+                message="Audio generated successfully"
             )
             
     except Exception as e:
