@@ -7,6 +7,24 @@ from pathlib import Path
 import sys
 import os
 
+# Fix for torch.xpu error - monkey patch if it doesn't exist
+if not hasattr(torch, 'xpu'):
+    logger = logging.getLogger(__name__)
+    logger.info("Adding torch.xpu compatibility layer")
+    class XPUDevice:
+        def __init__(self):
+            self.is_available = lambda: False
+            self.device_count = lambda: 0
+            self.current_device = lambda: 0
+            self.empty_cache = lambda: None
+            self.synchronize = lambda: None
+            self.manual_seed = lambda seed: None
+            self.initial_seed = lambda: 0
+            self.get_rng_state = lambda: None
+            self.set_rng_state = lambda state: None
+    
+    torch.xpu = XPUDevice()
+
 logger = logging.getLogger(__name__)
 
 def load_vibevoice_model(model_path: str, device: str = "cpu"):
@@ -15,23 +33,6 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
     """
     # Add VibeVoice to path
     sys.path.insert(0, "/app/vibevoice")
-    
-    # Fix for torch.xpu error - monkey patch if it doesn't exist
-    if not hasattr(torch, 'xpu'):
-        logger.info("Adding torch.xpu compatibility layer")
-        class XPUDevice:
-            def __init__(self):
-                self.is_available = lambda: False
-                self.device_count = lambda: 0
-                self.current_device = lambda: 0
-                self.empty_cache = lambda: None
-                self.synchronize = lambda: None
-                self.manual_seed = lambda seed: None
-                self.initial_seed = lambda: 0
-                self.get_rng_state = lambda: None
-                self.set_rng_state = lambda state: None
-        
-        torch.xpu = XPUDevice()
     
     try:
         # Import the inference model and processor
