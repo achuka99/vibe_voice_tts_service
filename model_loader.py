@@ -2,8 +2,16 @@
 Model loader for VibeVoice based on the official documentation
 """
 
-# Apply XPU compatibility patch BEFORE any other imports
+import sys
+import os
+import logging
 import torch
+import numpy as np
+from pathlib import Path
+from datetime import datetime
+import uuid
+
+# Apply torch.xpu compatibility fix at the very top
 if not hasattr(torch, 'xpu'):
     class XPUDevice:
         def __init__(self):
@@ -19,15 +27,14 @@ if not hasattr(torch, 'xpu'):
     
     torch.xpu = XPUDevice()
 
-import logging
-from pathlib import Path
-import sys
-import os
-import numpy as np
-import uuid
-from datetime import datetime
-
 logger = logging.getLogger(__name__)
+
+# Add VibeVoice to path
+sys.path.insert(0, "/app/vibevoice")
+
+from vibevoice.modular.modeling_vibevoice_streaming_inference import VibeVoiceStreamingForConditionalGenerationInference
+from vibevoice.processor.vibevoice_streaming_processor import VibeVoiceStreamingProcessor
+from vibevoice.modular.streamer import AudioStreamer
 
 def save_audio_as_wav(audio_data, sample_rate=24000, output_dir="/output"):
     """Save audio data as WAV file"""
@@ -283,7 +290,7 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                     raise e
             
             def generate_streaming(self, text: str, speaker_name: str = "Carter"):
-                """Generate streaming audio from text"""
+                """Generate streaming audio from text using AudioStreamer"""
                 try:
                     # Map speaker names to voice files
                     speaker_mapping = {
@@ -326,7 +333,9 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                     inputs = self.processor.process_input_with_cached_prompt(
                         text=text,
                         cached_prompt=cached_prompt,
-                        return_tensors="pt"
+                        padding=True,
+                        return_tensors="pt",
+                        return_attention_mask=True
                     )
                     
                     # Move to model device
@@ -334,55 +343,65 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                         if isinstance(inputs[key], torch.Tensor):
                             inputs[key] = inputs[key].to(self.model.device)
                     
-                    # Generate streaming audio
-                    import io
-                    import wave
+                    # Create AudioStreamer for real-time streaming
+                    audio_streamer = AudioStreamer(batch_size=1, stop_signal=None, timeout=None)
                     
-                    with torch.no_grad():
-                        outputs = self.model.generate(
-                            **inputs,
-                            tokenizer=self.processor.tokenizer,
-                            all_prefilled_outputs=cached_prompt,
-                            do_sample=True,
-                            max_new_tokens=8192,
-                            temperature=1.0,
-                            top_p=0.9,
-                            stream=True  # Enable streaming mode
-                        )
+                    # Start generation in a separate thread
+                    import threading
+                    import copy
+                    
+                    def run_generation():
+                        try:
+                            self.model.generate(
+                                **inputs,
+                                tokenizer=getattr(self.processor, 'text_tokenizer', None) or getattr(self.processor, 'tokenizer', None),
+                                all_prefilled_outputs=copy.deepcopy(cached_prompt),
+                                audio_streamer=audio_streamer,
+                                max_new_tokens=None,
+                                cfg_scale=1.5,
+                                generation_config={
+                                    "do_sample": True,
+                                    "temperature": 1.0,
+                                    "top_p": 0.9,
+                                },
+                                verbose=False,
+                                refresh_negative=True,
+                            )
+                        except Exception as e:
+                            logger.error(f"Generation error: {e}")
+                            audio_streamer.end()
+                    
+                    thread = threading.Thread(target=run_generation, daemon=True)
+                    thread.start()
+                    
+                    # Stream audio chunks as they're generated
+                    try:
+                        stream = audio_streamer.get_stream(0)
+                        for audio_chunk in stream:
+                            if torch.is_tensor(audio_chunk):
+                                audio_chunk = audio_chunk.detach().cpu().to(torch.float32).numpy()
+                            else:
+                                audio_chunk = np.asarray(audio_chunk, dtype=np.float32)
+                            
+                            if audio_chunk.ndim > 1:
+                                audio_chunk = audio_chunk.reshape(-1)
+                            
+                            # Normalize and convert to PCM16
+                            peak = np.max(np.abs(audio_chunk)) if audio_chunk.size else 0.0
+                            if peak > 1.0:
+                                audio_chunk = audio_chunk / peak
+                            
+                            # Clip to [-1, 1] and convert to int16
+                            audio_chunk = np.clip(audio_chunk, -1.0, 1.0)
+                            pcm16 = (audio_chunk * 32767.0).astype(np.int16)
+                            
+                            # Yield as bytes
+                            yield pcm16.tobytes()
+                    
+                    finally:
+                        audio_streamer.end()
+                        thread.join()
                         
-                        # Collect audio chunks as they're generated
-                        audio_buffer = []
-                        
-                        for output in outputs:
-                            if hasattr(output, 'speech_outputs') and output.speech_outputs is not None:
-                                audio_data = output.speech_outputs
-                                
-                                # Convert to float32 if needed
-                                if audio_data.dtype == torch.bfloat16:
-                                    audio_data = audio_data.float()
-                                
-                                # Convert to numpy and normalize
-                                audio_numpy = audio_data.cpu().numpy()
-                                
-                                # Normalize to [-1, 1] range and clip
-                                if audio_numpy.max() > 1.0 or audio_numpy.min() < -1.0:
-                                    audio_numpy = audio_numpy / np.max(np.abs(audio_numpy))
-                                audio_numpy = np.clip(audio_numpy, -1.0, 1.0)
-                                
-                                # Convert to int16
-                                audio_int16 = (audio_numpy * 32767).astype(np.int16)
-                                
-                                # Create WAV chunk in memory
-                                wav_buffer = io.BytesIO()
-                                with wave.open(wav_buffer, 'wb') as wav_file:
-                                    wav_file.setnchannels(1)  # Mono
-                                    wav_file.setsampwidth(2)  # 16-bit
-                                    wav_file.setframerate(24000)  # 24kHz
-                                    wav_file.writeframes(audio_int16.tobytes())
-                                
-                                wav_buffer.seek(0)
-                                yield wav_buffer.getvalue()
-                                
                 except Exception as e:
                     logger.error(f"Error in generate_streaming method: {e}")
                     import traceback
