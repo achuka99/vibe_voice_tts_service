@@ -216,11 +216,15 @@ async def text_to_speech(request: TTSRequest):
     try:
         logger.info(f"Processing TTS request: {len(request.text)} characters")
         
+        # Clean up the text to remove invalid characters
+        import re
+        cleaned_text = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', request.text)
+        
         if request.stream:
             # Return streaming audio response
             async def generate_audio() -> AsyncGenerator[bytes, None]:
                 audio_chunks = model.generate_streaming(
-                    text=request.text,
+                    text=cleaned_text,
                     speaker_name=request.speaker_name
                 )
                 for chunk in audio_chunks:
@@ -236,7 +240,7 @@ async def text_to_speech(request: TTSRequest):
         else:
             # Generate complete audio
             result = model.generate(
-                text=request.text,
+                text=cleaned_text,
                 speaker_name=request.speaker_name
             )
             
@@ -350,20 +354,39 @@ async def websocket_tts(websocket: WebSocket):
 @app.get("/api/speakers")
 async def list_speakers():
     """List available speaker voices"""
-    default_speakers = ["Carter", "Emma", "Michael", "Sophia"]
-    experimental_path = Path("/models/experimental_voices")
+    import glob
     
-    speakers = {
-        "default": default_speakers,
-        "experimental": []
-    }
+    # Get actual voice files from the container
+    voice_files = glob.glob("/app/vibevoice/demo/voices/streaming_model/*.pt")
+    
+    # Extract speaker names from filenames
+    available_speakers = []
+    for voice_file in voice_files:
+        filename = os.path.basename(voice_file)
+        # Remove .pt extension and get the speaker part
+        speaker_name = filename.replace('.pt', '')
+        # For English voices, extract the actual name (e.g., "en-Carter_man" -> "Carter")
+        if speaker_name.startswith('en-'):
+            parts = speaker_name.split('-')
+            if len(parts) >= 2:
+                name_part = parts[1]  # e.g., "Carter_man"
+                speaker_name = name_part.split('_')[0]  # e.g., "Carter"
+        available_speakers.append(speaker_name)
+    
+    # Get experimental voices if available
+    experimental_path = Path("/models/experimental_voices")
+    experimental_speakers = []
     
     if experimental_path.exists():
-        speakers["experimental"] = [
+        experimental_speakers = [
             f.stem for f in experimental_path.glob("*.pt")
         ]
     
-    return speakers
+    return {
+        "available": available_speakers,
+        "experimental": experimental_speakers,
+        "total_count": len(available_speakers)
+    }
 
 if __name__ == "__main__":
     import uvicorn
