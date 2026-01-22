@@ -292,6 +292,8 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
             def generate_streaming(self, text: str, speaker_name: str = "Carter"):
                 """Generate streaming audio from text using AudioStreamer"""
                 try:
+                    logger.info(f"Starting streaming generation for: {text[:50]}...")
+                    
                     # Map speaker names to voice files
                     speaker_mapping = {
                         "Carter": "en-Carter_man",
@@ -345,6 +347,7 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                     
                     # Create AudioStreamer for real-time streaming
                     audio_streamer = AudioStreamer(batch_size=1, stop_signal=None, timeout=None)
+                    logger.info("AudioStreamer created, starting generation...")
                     
                     # Start generation in a separate thread
                     import threading
@@ -352,6 +355,7 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                     
                     def run_generation():
                         try:
+                            logger.info("Starting model.generate() in thread...")
                             self.model.generate(
                                 **inputs,
                                 tokenizer=getattr(self.processor, 'text_tokenizer', None) or getattr(self.processor, 'tokenizer', None),
@@ -367,6 +371,7 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                                 verbose=False,
                                 refresh_negative=True,
                             )
+                            logger.info("Model generation completed")
                         except Exception as e:
                             logger.error(f"Generation error: {e}")
                             audio_streamer.end()
@@ -374,10 +379,14 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                     thread = threading.Thread(target=run_generation, daemon=True)
                     thread.start()
                     
+                    chunks_sent = 0
                     # Stream audio chunks as they're generated
                     try:
+                        logger.info("Getting audio stream...")
                         stream = audio_streamer.get_stream(0)
                         for audio_chunk in stream:
+                            logger.info(f"Received audio chunk: {type(audio_chunk)}, shape: {getattr(audio_chunk, 'shape', 'N/A')}")
+                            
                             if torch.is_tensor(audio_chunk):
                                 audio_chunk = audio_chunk.detach().cpu().to(torch.float32).numpy()
                             else:
@@ -385,6 +394,8 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                             
                             if audio_chunk.ndim > 1:
                                 audio_chunk = audio_chunk.reshape(-1)
+                            
+                            logger.info(f"Audio chunk shape after processing: {audio_chunk.shape}")
                             
                             # Normalize and convert to PCM16
                             peak = np.max(np.abs(audio_chunk)) if audio_chunk.size else 0.0
@@ -395,10 +406,17 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                             audio_chunk = np.clip(audio_chunk, -1.0, 1.0)
                             pcm16 = (audio_chunk * 32767.0).astype(np.int16)
                             
+                            logger.info(f"Yielding chunk {chunks_sent + 1}: {pcm16.nbytes} bytes")
+                            chunks_sent += 1
+                            
                             # Yield as bytes
                             yield pcm16.tobytes()
                     
+                    except Exception as e:
+                        logger.error(f"Stream error: {e}")
+                        raise e
                     finally:
+                        logger.info(f"Stream ended, sent {chunks_sent} chunks")
                         audio_streamer.end()
                         thread.join()
                         
