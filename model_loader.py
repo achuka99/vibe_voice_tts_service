@@ -67,8 +67,11 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
             
             def generate(self, text: str, speaker_name: str = "Carter"):
                 """Generate audio from text"""
-                # Process the text
-                inputs = self.processor(text=text, return_tensors="pt")
+                # Process the text using the correct method
+                inputs = self.processor.process_input_with_cached_prompt(
+                    text=text,
+                    return_tensors="pt"
+                )
                 
                 # Move to model device
                 for key in inputs:
