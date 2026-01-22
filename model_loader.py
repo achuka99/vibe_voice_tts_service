@@ -164,7 +164,11 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                     
                     # Generate audio
                     with torch.no_grad():
-                        outputs = self.model.generate(**inputs)
+                        # Pass the tokenizer from the processor to the model's generate method
+                        outputs = self.model.generate(
+                            **inputs,
+                            tokenizer=getattr(self.processor, 'text_tokenizer', None) or getattr(self.processor, 'tokenizer', None)
+                        )
                     
                     # Return audio data (convert to numpy if needed)
                     return outputs.audio_values.cpu().numpy()
