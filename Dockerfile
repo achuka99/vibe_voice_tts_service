@@ -27,7 +27,8 @@ RUN pip install --no-cache-dir \
     python-multipart==0.0.6 \
     aiofiles==23.2.1 \
     python-dotenv==1.0.0 \
-    huggingface-hub
+    huggingface-hub \
+    hf_transfer
 
 # Optional: Install flash attention for better performance
 # Uncomment if needed and if your GPU supports it
