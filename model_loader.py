@@ -350,9 +350,6 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                     audio_streamer = AudioStreamer(batch_size=1, stop_signal=None, timeout=None)
                     logger.info("AudioStreamer created, starting generation...")
                     
-                    # Set inference steps on the model
-                    self.model.set_ddpm_inference_steps(num_steps=inference_steps)
-                    
                     # Start generation in a separate thread
                     import threading
                     import copy
@@ -362,6 +359,10 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                         try:
                             logger.info("Starting model.generate() in thread...")
                             start_time = time.time()
+                            
+                            # Set inference steps RIGHT before generation (like official demo)
+                            self.model.set_ddpm_inference_steps(num_steps=inference_steps)
+                            
                             self.model.generate(
                                 **inputs,
                                 max_new_tokens=None,  # Exactly like official demo
