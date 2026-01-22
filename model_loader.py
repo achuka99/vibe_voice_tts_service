@@ -181,11 +181,17 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                         # Get the first speech output
                         audio_data = outputs.speech_outputs[0]
                         if isinstance(audio_data, torch.Tensor):
+                            # Convert to float32 before converting to numpy
+                            if audio_data.dtype == torch.bfloat16:
+                                audio_data = audio_data.float()
                             return audio_data.cpu().numpy()
                         else:
                             return audio_data
                     elif hasattr(outputs, 'audio_values'):
-                        return outputs.audio_values.cpu().numpy()
+                        audio_data = outputs.audio_values
+                        if audio_data.dtype == torch.bfloat16:
+                            audio_data = audio_data.float()
+                        return audio_data.cpu().numpy()
                     else:
                         logger.error(f"No audio found in output. Available attributes: {[attr for attr in dir(outputs) if not attr.startswith('_')]}")
                         raise AttributeError("No audio data found in model output")
