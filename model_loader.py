@@ -456,6 +456,10 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
         
         wrapped_model = VibeVoiceModelWrapper(model, processor)
         
+        # CRITICAL: Put model in eval mode like official demo
+        model.eval()
+        logger.info("Model set to eval mode")
+        
         logger.info("✅ VibeVoice model loaded successfully!")
         return wrapped_model
         
