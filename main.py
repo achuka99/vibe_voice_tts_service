@@ -12,6 +12,7 @@ import logging
 import os
 from pathlib import Path
 from huggingface_hub import snapshot_download
+import torch
 from model_loader import load_vibevoice_model
 
 # Configure logging
@@ -140,7 +141,7 @@ async def load_model():
     try:
         logger.info(f"Loading model from {MODEL_PATH}")
         
-        device = "cuda" if os.path.exists("/usr/local/cuda") else "cpu"
+        device = "cuda" if torch.cuda.is_available() else "cpu"
         logger.info(f"Using device: {device}")
         
         model = load_vibevoice_model(MODEL_PATH, device)
