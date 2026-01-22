@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VibeVoice-Realtime Streaming Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            min-height: 100vh;
+        }
+        
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        
+        .status {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+        
+        textarea, select, input {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.9);
+            color: #333;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        
+        textarea {
+            height: 100px;
+            resize: vertical;
+        }
+        
+        button {
+            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 25px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+        
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .audio-player {
+            margin-top: 20px;
+            text-align: center;
+        }
+        
+        audio {
+            width: 100%;
+            margin-top: 10px;
+            border-radius: 8px;
+        }
+        
+        .logs {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .success { color: #4ade80; }
+        .error { color: #f87171; }
+        .info { color: #60a5fa; }
+        
+        .params-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+        
+        .param-input {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .param-input label {
+            font-size: 12px;
+            margin-bottom: 5px;
+        }
+        
+        .param-input input {
+            padding: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎤 VibeVoice-Realtime Streaming Test</h1>
+        
+        <div class="status" id="status">
+            <div>🔴 Disconnected</div>
+            <div id="connectionInfo">WebSocket: ws://35.203.124.213:8000/ws/tts</div>
+        </div>
+        
+        <div class="form-group">
+            <label for="text">Text to synthesize:</label>
+            <textarea id="text" placeholder="Enter text to convert to speech...">Hello! This is a test of the VibeVoice realtime streaming synthesis. How does it sound?</textarea>
+        </div>
+        
+        <div class="form-group">
+            <label for="speaker">Speaker Voice:</label>
+            <select id="speaker">
+                <option value="Carter">Carter (Male)</option>
+                <option value="Emma">Emma (Female)</option>
+                <option value="Davis">Davis (Male)</option>
+                <option value="Frank">Frank (Male)</option>
+                <option value="Grace">Grace (Female)</option>
+                <option value="Mike">Mike (Male)</option>
+            </select>
+        </div>
+        
+        <div class="params-grid">
+            <div class="param-input">
+                <label for="maxTokens">Max New Tokens</label>
+                <input type="number" id="maxTokens" value="8192" min="1" max="32768">
+            </div>
+            <div class="param-input">
+                <label for="temperature">Temperature</label>
+                <input type="number" id="temperature" value="1.0" min="0.1" max="2.0" step="0.1">
+            </div>
+            <div class="param-input">
+                <label for="topP">Top-p</label>
+                <input type="number" id="topP" value="0.9" min="0.1" max="1.0" step="0.1">
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <button id="connectBtn">🔗 Connect WebSocket</button>
+            <button id="generateBtn" disabled>🎵 Generate Speech</button>
+            <button id="generateHttpBtn" disabled>🌐 Generate (HTTP)</button>
+            <button id="clearBtn">🗑️ Clear</button>
+        </div>
+        
+        <div class="audio-player" id="audioPlayer" style="display: none;">
+            <h3>🎧 Generated Audio</h3>
+            <audio id="audioElement" controls></audio>
+            <div id="audioInfo"></div>
+        </div>
+        
+        <div class="logs" id="logs">
+            <div class="info">Ready to connect to VibeVoice API...</div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://35.203.124.213:8000';
+        const WS_URL = 'ws://35.203.124.213:8000/ws/tts';
+        
+        let ws = null;
+        let audioChunks = [];
+        let isGenerating = false;
+        
+        const elements = {
+            status: document.getElementById('status'),
+            connectionInfo: document.getElementById('connectionInfo'),
+            text: document.getElementById('text'),
+            speaker: document.getElementById('speaker'),
+            maxTokens: document.getElementById('maxTokens'),
+            temperature: document.getElementById('temperature'),
+            topP: document.getElementById('topP'),
+            connectBtn: document.getElementById('connectBtn'),
+            generateBtn: document.getElementById('generateBtn'),
+            generateHttpBtn: document.getElementById('generateHttpBtn'),
+            clearBtn: document.getElementById('clearBtn'),
+            audioPlayer: document.getElementById('audioPlayer'),
+            audioElement: document.getElementById('audioElement'),
+            audioInfo: document.getElementById('audioInfo'),
+            logs: document.getElementById('logs')
+        };
+        
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.className = type;
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            elements.logs.appendChild(logEntry);
+            elements.logs.scrollTop = elements.logs.scrollHeight;
+        }
+        
+        function updateStatus(connected, message = '') {
+            const statusDiv = elements.status.querySelector('div');
+            if (connected) {
+                statusDiv.textContent = '🟢 Connected';
+                statusDiv.className = 'success';
+            } else {
+                statusDiv.textContent = '🔴 Disconnected';
+                statusDiv.className = 'error';
+            }
+            if (message) {
+                elements.status.innerHTML += `<div>${message}</div>`;
+            }
+        }
+        
+        async function loadSpeakers() {
+            try {
+                const response = await fetch(`${API_BASE}/api/speakers`);
+                const data = await response.json();
+                log(`Available speakers: ${JSON.stringify(data)}`, 'info');
+                
+                // Update speaker dropdown with actual available speakers
+                const speakerSelect = elements.speaker;
+                speakerSelect.innerHTML = '';
+                
+                if (data.available && data.available.length > 0) {
+                    data.available.forEach(speaker => {
+                        const option = document.createElement('option');
+                        option.value = speaker;
+                        option.textContent = speaker;
+                        speakerSelect.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                log(`Failed to load speakers: ${error.message}`, 'error');
+            }
+        }
+        
+        function connectWebSocket() {
+            try {
+                ws = new WebSocket(WS_URL);
+                
+                ws.onopen = () => {
+                    log('WebSocket connected successfully', 'success');
+                    updateStatus(true);
+                    elements.connectBtn.textContent = '🔌 Disconnect';
+                    elements.generateBtn.disabled = false;
+                    elements.generateHttpBtn.disabled = false;
+                };
+                
+                ws.onmessage = (event) => {
+                    const data = event.data;
+                    
+                    if (data instanceof Blob) {
+                        // Audio chunk received
+                        audioChunks.push(data);
+                        log(`Received audio chunk: ${data.size} bytes`, 'info');
+                    } else {
+                        // JSON message
+                        try {
+                            const message = JSON.parse(data);
+                            if (message.status === 'complete') {
+                                log('Audio generation completed', 'success');
+                                combineAudioChunks();
+                            } else if (message.error) {
+                                log(`Error: ${message.error}`, 'error');
+                                isGenerating = false;
+                                elements.generateBtn.disabled = false;
+                            }
+                        } catch (e) {
+                            log(`Received message: ${data}`, 'info');
+                        }
+                    }
+                };
+                
+                ws.onerror = (error) => {
+                    log(`WebSocket error: ${error}`, 'error');
+                    updateStatus(false);
+                };
+                
+                ws.onclose = () => {
+                    log('WebSocket disconnected', 'info');
+                    updateStatus(false);
+                    elements.connectBtn.textContent = '🔗 Connect WebSocket';
+                    elements.generateBtn.disabled = true;
+                    elements.generateHttpBtn.disabled = false;
+                };
+                
+            } catch (error) {
+                log(`Failed to connect: ${error.message}`, 'error');
+            }
+        }
+        
+        function disconnectWebSocket() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+        }
+        
+        async function generateWebSocket() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                log('WebSocket not connected', 'error');
+                return;
+            }
+            
+            const text = elements.text.value.trim();
+            if (!text) {
+                log('Please enter text to synthesize', 'error');
+                return;
+            }
+            
+            audioChunks = [];
+            isGenerating = true;
+            elements.generateBtn.disabled = true;
+            
+            const message = {
+                text: text,
+                speaker_name: elements.speaker.value
+            };
+            
+            log(`Sending: ${JSON.stringify(message)}`, 'info');
+            ws.send(JSON.stringify(message));
+        }
+        
+        async function generateHTTP() {
+            const text = elements.text.value.trim();
+            if (!text) {
+                log('Please enter text to synthesize', 'error');
+                return;
+            }
+            
+            elements.generateHttpBtn.disabled = true;
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/tts`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        text: text,
+                        speaker_name: elements.speaker.value,
+                        stream: false,
+                        max_new_tokens: parseInt(elements.maxTokens.value),
+                        temperature: parseFloat(elements.temperature.value),
+                        top_p: parseFloat(elements.topP.value)
+                    })
+                });
+                
+                if (response.ok) {
+                    const audioBlob = await response.blob();
+                    const audioUrl = URL.createObjectURL(audioBlob);
+                    elements.audioElement.src = audioUrl;
+                    elements.audioPlayer.style.display = 'block';
+                    elements.audioInfo.textContent = `Size: ${(audioBlob.size / 1024).toFixed(2)} KB`;
+                    log('HTTP audio generation completed', 'success');
+                } else {
+                    const error = await response.text();
+                    log(`HTTP error: ${response.status} - ${error}`, 'error');
+                }
+            } catch (error) {
+                log(`HTTP request failed: ${error.message}`, 'error');
+            } finally {
+                elements.generateHttpBtn.disabled = false;
+            }
+        }
+        
+        async function combineAudioChunks() {
+            if (audioChunks.length === 0) {
+                log('No audio chunks received', 'error');
+                return;
+            }
+            
+            try {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                const audioUrl = URL.createObjectURL(audioBlob);
+                elements.audioElement.src = audioUrl;
+                elements.audioPlayer.style.display = 'block';
+                elements.audioInfo.textContent = `Chunks: ${audioChunks.length}, Size: ${(audioBlob.size / 1024).toFixed(2)} KB`;
+                log('Audio combined and ready to play', 'success');
+            } catch (error) {
+                log(`Failed to combine audio: ${error.message}`, 'error');
+            } finally {
+                isGenerating = false;
+                elements.generateBtn.disabled = false;
+            }
+        }
+        
+        function clear() {
+            elements.text.value = '';
+            elements.audioPlayer.style.display = 'none';
+            elements.audioElement.src = '';
+            audioChunks = [];
+            elements.logs.innerHTML = '<div class="info">Cleared - ready for new request</div>';
+        }
+        
+        // Event listeners
+        elements.connectBtn.addEventListener('click', () => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                disconnectWebSocket();
+            } else {
+                connectWebSocket();
+            }
+        });
+        
+        elements.generateBtn.addEventListener('click', generateWebSocket);
+        elements.generateHttpBtn.addEventListener('click', generateHTTP);
+        elements.clearBtn.addEventListener('click', clear);
+        
+        // Initialize
+        loadSpeakers();
+        log('VibeVoice client initialized', 'success');
+    </script>
+</body>
+</html>

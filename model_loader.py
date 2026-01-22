@@ -282,12 +282,22 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
             def generate_streaming(self, text: str, speaker_name: str = "Carter"):
                 """Generate streaming audio from text"""
                 # For now, just return the full generation in chunks
-                audio = self.generate(text, speaker_name)
+                result = self.generate(text, speaker_name)
+                
+                # Extract audio data from the result
+                if isinstance(result, dict):
+                    audio_data = result.get('audio_data')
+                else:
+                    audio_data = result
+                
+                if audio_data is None:
+                    raise ValueError("No audio data generated")
+                
+                # Convert to bytes
+                audio_bytes = audio_data.tobytes()
                 
                 # Split into chunks
                 chunk_size = 1024
-                audio_bytes = audio.tobytes()
-                
                 for i in range(0, len(audio_bytes), chunk_size):
                     yield audio_bytes[i:i+chunk_size]
         
