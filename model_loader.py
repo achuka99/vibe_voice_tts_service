@@ -351,13 +351,12 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                     logger.info("AudioStreamer created, starting generation...")
                     
                     # Create stop event like official demo
-                    stop_event = threading.Event()
-                    
-                    # Start generation in a separate thread
                     import threading
                     import copy
                     import time
+                    stop_event = threading.Event()
                     
+                    # Start generation in a separate thread
                     def run_generation():
                         try:
                             logger.info("Starting model.generate() in thread...")
