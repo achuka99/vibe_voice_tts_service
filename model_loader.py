@@ -172,8 +172,23 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                             all_prefilled_outputs=cached_prompt
                         )
                     
+                    # Debug the output object
+                    logger.info(f"Output type: {type(outputs)}")
+                    logger.info(f"Output attributes: {[attr for attr in dir(outputs) if not attr.startswith('_')]}")
+                    
                     # Return audio data (convert to numpy if needed)
-                    return outputs.audio_values.cpu().numpy()
+                    if hasattr(outputs, 'speech_outputs') and outputs.speech_outputs:
+                        # Get the first speech output
+                        audio_data = outputs.speech_outputs[0]
+                        if isinstance(audio_data, torch.Tensor):
+                            return audio_data.cpu().numpy()
+                        else:
+                            return audio_data
+                    elif hasattr(outputs, 'audio_values'):
+                        return outputs.audio_values.cpu().numpy()
+                    else:
+                        logger.error(f"No audio found in output. Available attributes: {[attr for attr in dir(outputs) if not attr.startswith('_')]}")
+                        raise AttributeError("No audio data found in model output")
                     
                 except Exception as e:
                     logger.error(f"Error in generate method: {e}")
