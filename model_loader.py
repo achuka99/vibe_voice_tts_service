@@ -387,58 +387,43 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                     thread.start()
                     
                     chunks_sent = 0
-                    # Stream audio chunks as they're generated
+                    # Stream audio chunks as they're generated - use the same approach as official demo
                     try:
                         logger.info("Getting audio stream...")
                         stream = audio_streamer.get_stream(0)
                         
-                        # Keep streaming until the model is completely done
-                        while thread.is_alive():
-                            try:
-                                # Get chunk with timeout to avoid blocking
-                                audio_chunk = next(stream, None)
-                                if audio_chunk is None:
-                                    # No more chunks available, wait a bit and check again
-                                    time.sleep(0.01)
-                                    continue
-                                    
-                                logger.info(f"Received audio chunk: {type(audio_chunk)}, shape: {getattr(audio_chunk, 'shape', 'N/A')}")
-                                
-                                if torch.is_tensor(audio_chunk):
-                                    audio_chunk = audio_chunk.detach().cpu().to(torch.float32).numpy()
-                                else:
-                                    audio_chunk = np.asarray(audio_chunk, dtype=np.float32)
-                                
-                                if audio_chunk.ndim > 1:
-                                    audio_chunk = audio_chunk.reshape(-1)
-                                
-                                logger.info(f"Audio chunk shape after processing: {audio_chunk.shape}")
-                                
-                                # Normalize and convert to PCM16
-                                peak = np.max(np.abs(audio_chunk)) if audio_chunk.size else 0.0
-                                if peak > 1.0:
-                                    audio_chunk = audio_chunk / peak
-                                
-                                # Clip to [-1, 1] and convert to int16
-                                audio_chunk = np.clip(audio_chunk, -1.0, 1.0)
-                                pcm16 = (audio_chunk * 32767.0).astype(np.int16)
-                                
-                                logger.info(f"Yielding chunk {chunks_sent + 1}: {pcm16.nbytes} bytes")
-                                chunks_sent += 1
-                                
-                                # Yield as bytes
-                                yield pcm16.tobytes()
-                                
-                            except StopIteration:
-                                # Stream is exhausted, break
-                                break
-                            except Exception as e:
-                                logger.error(f"Error processing chunk: {e}")
-                                break
+                        # Use the official demo approach - simple for loop over stream
+                        for audio_chunk in stream:
+                            logger.info(f"Received audio chunk: {type(audio_chunk)}, shape: {getattr(audio_chunk, 'shape', 'N/A')}")
+                            
+                            if torch.is_tensor(audio_chunk):
+                                audio_chunk = audio_chunk.detach().cpu().to(torch.float32).numpy()
+                            else:
+                                audio_chunk = np.asarray(audio_chunk, dtype=np.float32)
+                            
+                            if audio_chunk.ndim > 1:
+                                audio_chunk = audio_chunk.reshape(-1)
+                            
+                            logger.info(f"Audio chunk shape after processing: {audio_chunk.shape}")
+                            
+                            # Normalize and convert to PCM16
+                            peak = np.max(np.abs(audio_chunk)) if audio_chunk.size else 0.0
+                            if peak > 1.0:
+                                audio_chunk = audio_chunk / peak
+                            
+                            # Clip to [-1, 1] and convert to int16
+                            audio_chunk = np.clip(audio_chunk, -1.0, 1.0)
+                            pcm16 = (audio_chunk * 32767.0).astype(np.int16)
+                            
+                            logger.info(f"Yielding chunk {chunks_sent + 1}: {pcm16.nbytes} bytes")
+                            chunks_sent += 1
+                            
+                            # Yield as bytes
+                            yield pcm16.tobytes()
                         
-                        # Wait for generation to complete
+                        # Wait for generation thread to complete
                         thread.join(timeout=30)
-                        logger.info(f"Generation thread completed, sent {chunks_sent} chunks total")
+                        logger.info(f"Stream completed naturally, sent {chunks_sent} chunks total")
                         
                     except Exception as e:
                         logger.error(f"Stream error: {e}")
