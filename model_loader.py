@@ -1,16 +1,10 @@
 """
 Model loader for VibeVoice based on the official documentation
 """
-import torch
-import logging
-from pathlib import Path
-import sys
-import os
 
-# Fix for torch.xpu error - monkey patch if it doesn't exist
+# Apply XPU compatibility patch BEFORE any other imports
+import torch
 if not hasattr(torch, 'xpu'):
-    logger = logging.getLogger(__name__)
-    logger.info("Adding torch.xpu compatibility layer")
     class XPUDevice:
         def __init__(self):
             self.is_available = lambda: False
@@ -24,6 +18,11 @@ if not hasattr(torch, 'xpu'):
             self.set_rng_state = lambda state: None
     
     torch.xpu = XPUDevice()
+
+import logging
+from pathlib import Path
+import sys
+import os
 
 logger = logging.getLogger(__name__)
 
