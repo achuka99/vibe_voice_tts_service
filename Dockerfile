@@ -37,6 +37,7 @@ RUN pip install --no-cache-dir \
 # Copy FastAPI application
 WORKDIR /app
 COPY main.py .
+COPY model_loader.py .
 
 # Create directories for models and audio
 # Models will be auto-downloaded on first run
