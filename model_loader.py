@@ -170,11 +170,23 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
             def generate(self, text: str, speaker_name: str = "Carter"):
                 """Generate audio from text"""
                 try:
-                    # Load voice preset for the speaker
-                    voice_path = f"/app/vibevoice/demo/voices/streaming_model/en-{speaker_name}_man.pt"
+                    # Map speaker names to voice files
+                    speaker_mapping = {
+                        "Carter": "en-Carter_man",
+                        "Davis": "en-Davis_man", 
+                        "Emma": "en-Emma_woman",
+                        "Frank": "en-Frank_man",
+                        "Grace": "en-Grace_woman",
+                        "Mike": "en-Mike_man"
+                    }
+                    
+                    # Get the correct voice file name
+                    voice_name_key = speaker_mapping.get(speaker_name, "en-Carter_man")
+                    voice_path = f"/app/vibevoice/demo/voices/streaming_model/{voice_name_key}.pt"
+                    
                     import glob
-                    # First try exact match for the speaker
-                    voice_files = glob.glob(f"/app/vibevoice/demo/voices/streaming_model/en-{speaker_name}_*.pt")
+                    # First try exact match for speaker
+                    voice_files = glob.glob(f"/app/vibevoice/demo/voices/streaming_model/{voice_name_key}*.pt")
                     if voice_files:
                         voice_path = voice_files[0]
                     else:

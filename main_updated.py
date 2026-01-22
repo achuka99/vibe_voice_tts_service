@@ -41,7 +41,6 @@ MODEL_PATH = os.getenv("MODEL_PATH", "/models/VibeVoice-Realtime-0.5B")
 MODEL_REPO = os.getenv("MODEL_REPO", "microsoft/VibeVoice-Realtime-0.5B")
 AUTO_DOWNLOAD = os.getenv("AUTO_DOWNLOAD_MODEL", "true").lower() == "true"
 
-
 class TTSRequest(BaseModel):
     text: str = Field(..., description="Text to convert to speech")
     speaker_name: str = Field(default="Carter", description="Speaker voice name")
@@ -50,12 +49,10 @@ class TTSRequest(BaseModel):
     temperature: Optional[float] = Field(default=1.0, description="Sampling temperature")
     top_p: Optional[float] = Field(default=0.9, description="Top-p sampling")
 
-
 class TTSResponse(BaseModel):
     audio_path: Optional[str] = None
     duration: Optional[float] = None
     message: str
-
 
 async def download_model():
     """Download model from Hugging Face if not present"""
@@ -108,7 +105,6 @@ async def download_model():
         logger.error(f"Failed to download model: {e}")
         return False
 
-
 async def download_experimental_voices():
     """Download experimental voices if enabled"""
     if not os.getenv("DOWNLOAD_EXPERIMENTAL_VOICES", "false").lower() == "true":
@@ -130,9 +126,8 @@ async def download_experimental_voices():
     except Exception as e:
         logger.warning(f"Could not download experimental voices: {e}")
 
-
 async def load_model():
-    """Load the VibeVoice model on startup"""
+    """Load VibeVoice model on startup"""
     global model
     
     # First, ensure model is downloaded
@@ -157,7 +152,6 @@ async def load_model():
         logger.error(f"Failed to load model: {e}")
         raise RuntimeError(f"Model loading failed: {e}")
 
-
 @app.on_event("startup")
 async def startup_event():
     """Initialize model on startup"""
@@ -172,7 +166,6 @@ async def startup_event():
         logger.error(f"Startup failed: {e}")
         logger.warning("API will start but TTS endpoints may not work until model is loaded")
 
-
 @app.get("/")
 async def root():
     """Health check endpoint"""
@@ -185,10 +178,9 @@ async def root():
             "tts": "/api/tts",
             "websocket": "/ws/tts",
             "health": "/health",
-            "download": "/api/download-model"
+            "speakers": "/api/speakers"
         }
     }
-
 
 @app.get("/health")
 async def health_check():
@@ -203,28 +195,6 @@ async def health_check():
         "auto_download": AUTO_DOWNLOAD
     }
 
-
-@app.post("/api/download-model")
-async def trigger_model_download():
-    """Manually trigger model download"""
-    if not AUTO_DOWNLOAD:
-        raise HTTPException(
-            status_code=400,
-            detail="AUTO_DOWNLOAD_MODEL is disabled. Enable it in environment variables."
-        )
-    
-    try:
-        success = await download_model()
-        if success:
-            # Try to load the model
-            await load_model()
-            return {"status": "success", "message": "Model downloaded and loaded"}
-        else:
-            raise HTTPException(status_code=500, detail="Model download failed")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @app.post("/api/tts", response_model=TTSResponse)
 async def text_to_speech(request: TTSRequest):
     """
@@ -233,11 +203,14 @@ async def text_to_speech(request: TTSRequest):
     - **text**: Input text to synthesize
     - **speaker_name**: Voice to use (default: Carter)
     - **stream**: Enable streaming response
+    - **max_new_tokens**: Maximum number of new tokens to generate
+    - **temperature**: Sampling temperature
+    - **top_p**: Top-p sampling
     """
     if model is None:
         raise HTTPException(
             status_code=503,
-            detail="Model not loaded. Try /api/download-model endpoint."
+            detail="Model not loaded. Try restarting the API."
         )
     
     try:
@@ -319,7 +292,6 @@ async def text_to_speech(request: TTSRequest):
         logger.error(f"TTS generation failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @app.websocket("/ws/tts")
 async def websocket_tts(websocket: WebSocket):
     """
@@ -334,7 +306,7 @@ async def websocket_tts(websocket: WebSocket):
     if model is None:
         await websocket.send_json({
             "error": "Model not loaded",
-            "message": "Use /api/download-model to download the model first"
+            "message": "Use /api/download-model to download model first"
         })
         await websocket.close()
         return
@@ -375,7 +347,6 @@ async def websocket_tts(websocket: WebSocket):
         logger.error(f"WebSocket error: {e}")
         await websocket.close()
 
-
 @app.get("/api/speakers")
 async def list_speakers():
     """List available speaker voices"""
@@ -393,7 +364,6 @@ async def list_speakers():
         ]
     
     return speakers
-
 
 if __name__ == "__main__":
     import uvicorn
