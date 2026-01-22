@@ -44,14 +44,48 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
         os.environ["MODEL_PATH"] = model_path
         os.environ["MODEL_DEVICE"] = device
         
+        # Decide dtype & attention implementation based on device
+        if device == "mps":
+            load_dtype = torch.float32  # MPS requires float32
+            attn_impl_primary = "sdpa"  # flash_attention_2 not supported on MPS
+        elif device == "cuda":
+            load_dtype = torch.bfloat16
+            attn_impl_primary = "flash_attention_2"
+        else:  # cpu
+            load_dtype = torch.float32
+            attn_impl_primary = "sdpa"
+        
+        logger.info(f"Using device: {device}, torch_dtype: {load_dtype}, attn_implementation: {attn_impl_primary}")
+        
         # Load the processor
         processor = VibeVoiceStreamingProcessor.from_pretrained(model_path)
         
-        # Create the model instance
-        model = VibeVoiceStreamingForConditionalGenerationInference.from_pretrained(
-            model_path,
-            torch_dtype=torch.float16 if device == "cuda" else torch.float32
-        )
+        # Load model with device-specific logic
+        try:
+            if device == "mps":
+                model = VibeVoiceStreamingForConditionalGenerationInference.from_pretrained(
+                    model_path,
+                    torch_dtype=load_dtype,
+                    attn_implementation=attn_impl_primary,
+                    device_map=None,  # load then move
+                )
+                model = model.to(device)
+            else:
+                model = VibeVoiceStreamingForConditionalGenerationInference.from_pretrained(
+                    model_path,
+                    torch_dtype=load_dtype,
+                    attn_implementation=attn_impl_primary,
+                    device_map=device if device == "cuda" else None,
+                )
+        except Exception as e:
+            logger.warning(f"Failed to load with flash attention, falling back to SDPA: {e}")
+            # Fallback to SDPA if flash attention fails
+            model = VibeVoiceStreamingForConditionalGenerationInference.from_pretrained(
+                model_path,
+                torch_dtype=load_dtype,
+                attn_implementation="sdpa",
+                device_map=device if device == "cuda" else None,
+            )
         
         # Move to device
         if device == "cuda" and torch.cuda.is_available():
