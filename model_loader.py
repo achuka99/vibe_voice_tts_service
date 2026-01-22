@@ -50,6 +50,9 @@ def save_audio_as_wav(audio_data, sample_rate=24000, output_dir="/output"):
             if audio_data.max() > 1.0 or audio_data.min() < -1.0:
                 audio_data = audio_data / np.max(np.abs(audio_data))
             
+            # Ensure values are in valid range [-1, 1] before conversion
+            audio_data = np.clip(audio_data, -1.0, 1.0)
+            
             # Convert to int16
             audio_data_int16 = (audio_data * 32767).astype(np.int16)
         else:
@@ -281,25 +284,110 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
             
             def generate_streaming(self, text: str, speaker_name: str = "Carter"):
                 """Generate streaming audio from text"""
-                # For now, just return the full generation in chunks
-                result = self.generate(text, speaker_name)
-                
-                # Extract audio data from the result
-                if isinstance(result, dict):
-                    audio_data = result.get('audio_data')
-                else:
-                    audio_data = result
-                
-                if audio_data is None:
-                    raise ValueError("No audio data generated")
-                
-                # Convert to bytes
-                audio_bytes = audio_data.tobytes()
-                
-                # Split into chunks
-                chunk_size = 1024
-                for i in range(0, len(audio_bytes), chunk_size):
-                    yield audio_bytes[i:i+chunk_size]
+                try:
+                    # Map speaker names to voice files
+                    speaker_mapping = {
+                        "Carter": "en-Carter_man",
+                        "Davis": "en-Davis_man", 
+                        "Emma": "en-Emma_woman",
+                        "Frank": "en-Frank_man",
+                        "Grace": "en-Grace_woman",
+                        "Mike": "en-Mike_man"
+                    }
+                    
+                    # Get the correct voice file name
+                    voice_name_key = speaker_mapping.get(speaker_name, "en-Carter_man")
+                    voice_path = f"/app/vibevoice/demo/voices/streaming_model/{voice_name_key}.pt"
+                    
+                    import glob
+                    # First try exact match for speaker
+                    voice_files = glob.glob(f"/app/vibevoice/demo/voices/streaming_model/{voice_name_key}*.pt")
+                    if voice_files:
+                        voice_path = voice_files[0]
+                    else:
+                        # Try to find any English voice file
+                        voice_files = glob.glob("/app/vibevoice/demo/voices/streaming_model/en-*.pt")
+                        if voice_files:
+                            voice_path = voice_files[0]
+                            logger.warning(f"Speaker '{speaker_name}' not found, using default voice: {voice_path}")
+                        else:
+                            # Fallback to any voice file
+                            voice_files = glob.glob("/app/vibevoice/demo/voices/streaming_model/*.pt")
+                            if voice_files:
+                                voice_path = voice_files[0]
+                                logger.warning(f"No English voice found, using default voice: {voice_path}")
+                            else:
+                                raise FileNotFoundError("No voice files found")
+                    
+                    logger.info(f"Loading voice preset from: {voice_path}")
+                    cached_prompt = torch.load(voice_path, map_location=self.model.device, weights_only=False)
+                    
+                    # Process the text using the correct method
+                    inputs = self.processor.process_input_with_cached_prompt(
+                        text=text,
+                        cached_prompt=cached_prompt,
+                        return_tensors="pt"
+                    )
+                    
+                    # Move to model device
+                    for key in inputs:
+                        if isinstance(inputs[key], torch.Tensor):
+                            inputs[key] = inputs[key].to(self.model.device)
+                    
+                    # Generate streaming audio
+                    import io
+                    import wave
+                    
+                    with torch.no_grad():
+                        outputs = self.model.generate(
+                            **inputs,
+                            tokenizer=self.processor.tokenizer,
+                            all_prefilled_outputs=cached_prompt,
+                            do_sample=True,
+                            max_new_tokens=8192,
+                            temperature=1.0,
+                            top_p=0.9,
+                            stream=True  # Enable streaming mode
+                        )
+                        
+                        # Collect audio chunks as they're generated
+                        audio_buffer = []
+                        
+                        for output in outputs:
+                            if hasattr(output, 'speech_outputs') and output.speech_outputs is not None:
+                                audio_data = output.speech_outputs
+                                
+                                # Convert to float32 if needed
+                                if audio_data.dtype == torch.bfloat16:
+                                    audio_data = audio_data.float()
+                                
+                                # Convert to numpy and normalize
+                                audio_numpy = audio_data.cpu().numpy()
+                                
+                                # Normalize to [-1, 1] range and clip
+                                if audio_numpy.max() > 1.0 or audio_numpy.min() < -1.0:
+                                    audio_numpy = audio_numpy / np.max(np.abs(audio_numpy))
+                                audio_numpy = np.clip(audio_numpy, -1.0, 1.0)
+                                
+                                # Convert to int16
+                                audio_int16 = (audio_numpy * 32767).astype(np.int16)
+                                
+                                # Create WAV chunk in memory
+                                wav_buffer = io.BytesIO()
+                                with wave.open(wav_buffer, 'wb') as wav_file:
+                                    wav_file.setnchannels(1)  # Mono
+                                    wav_file.setsampwidth(2)  # 16-bit
+                                    wav_file.setframerate(24000)  # 24kHz
+                                    wav_file.writeframes(audio_int16.tobytes())
+                                
+                                wav_buffer.seek(0)
+                                yield wav_buffer.getvalue()
+                                
+                except Exception as e:
+                    logger.error(f"Error in generate_streaming method: {e}")
+                    import traceback
+                    logger.error(f"Traceback: {traceback.format_exc()}")
+                    raise e
         
         wrapped_model = VibeVoiceModelWrapper(model, processor)
         
