@@ -17,9 +17,9 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
     sys.path.insert(0, "/app/vibevoice")
     
     try:
-        # Import the actual model from the VibeVoice package
-        # Based on the documentation, we need to import the model class
-        from vibevoice.models.vibevoice_realtime import VibeVoiceRealtime
+        # Import the inference model and processor
+        from vibevoice.modular.modeling_vibevoice_streaming_inference import VibeVoiceStreamingForConditionalGenerationInference
+        from vibevoice.processor.vibevoice_streaming_processor import VibeVoiceStreamingProcessor
         
         logger.info(f"Loading VibeVoice model from {model_path} on device {device}")
         
@@ -27,43 +27,64 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
         os.environ["MODEL_PATH"] = model_path
         os.environ["MODEL_DEVICE"] = device
         
+        # Load the processor
+        processor = VibeVoiceStreamingProcessor.from_pretrained(model_path)
+        
         # Create the model instance
-        model = VibeVoiceRealtime(model_path=model_path, device=device)
+        model = VibeVoiceStreamingForConditionalGenerationInference.from_pretrained(
+            model_path,
+            torch_dtype=torch.float16 if device == "cuda" else torch.float32
+        )
+        
+        # Move to device
+        if device == "cuda" and torch.cuda.is_available():
+            model = model.cuda()
+        else:
+            model = model.cpu()
+        
+        # Create a wrapper that provides the expected interface
+        class VibeVoiceModelWrapper:
+            def __init__(self, model, processor):
+                self.model = model
+                self.processor = processor
+            
+            def generate(self, text: str, speaker_name: str = "Carter"):
+                """Generate audio from text"""
+                # Process the text
+                inputs = self.processor(text=text, return_tensors="pt")
+                
+                # Move to model device
+                for key in inputs:
+                    if isinstance(inputs[key], torch.Tensor):
+                        inputs[key] = inputs[key].to(self.model.device)
+                
+                # Generate audio
+                with torch.no_grad():
+                    outputs = self.model.generate(**inputs)
+                
+                # Return audio data (convert to numpy if needed)
+                return outputs.audio_values.cpu().numpy()
+            
+            def generate_streaming(self, text: str, speaker_name: str = "Carter"):
+                """Generate streaming audio from text"""
+                # For now, just return the full generation in chunks
+                audio = self.generate(text, speaker_name)
+                
+                # Split into chunks
+                chunk_size = 1024
+                audio_bytes = audio.tobytes()
+                
+                for i in range(0, len(audio_bytes), chunk_size):
+                    yield audio_bytes[i:i+chunk_size]
+        
+        wrapped_model = VibeVoiceModelWrapper(model, processor)
         
         logger.info("✅ VibeVoice model loaded successfully!")
-        return model
+        return wrapped_model
         
     except ImportError as e:
-        logger.error(f"Failed to import VibeVoiceRealtime: {e}")
-        # Try alternative import paths
-        try:
-            from vibevoice import VibeVoiceRealtime
-            logger.info("Using alternative import path")
-            
-            os.environ["MODEL_PATH"] = model_path
-            os.environ["MODEL_DEVICE"] = device
-            
-            model = VibeVoiceRealtime(model_path=model_path, device=device)
-            logger.info("✅ VibeVoice model loaded successfully!")
-            return model
-        except ImportError as e2:
-            logger.error(f"Alternative import also failed: {e2}")
-            
-            # Try to find what's available in the vibevoice package
-            try:
-                import vibevoice
-                logger.info(f"Available in vibevoice package: {[x for x in dir(vibevoice) if not x.startswith('_')]}")
-                
-                # Look for model-related modules
-                vibevoice_path = Path("/app/vibevoice")
-                models_path = vibevoice_path / "vibevoice" / "models"
-                if models_path.exists():
-                    logger.info(f"Available models: {[f.name for f in models_path.iterdir() if f.is_file() and f.name.endswith('.py')]}")
-                
-            except Exception as e3:
-                logger.error(f"Could not explore vibevoice package: {e3}")
-            
-            raise ImportError("Could not find VibeVoice model class. Check the installation.")
+        logger.error(f"Failed to import VibeVoice classes: {e}")
+        raise ImportError("Could not find VibeVoice model class. Check the installation.")
         
     except Exception as e:
         logger.error(f"Failed to load VibeVoice model: {e}")
