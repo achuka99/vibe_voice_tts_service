@@ -364,18 +364,19 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                             start_time = time.time()
                             self.model.generate(
                                 **inputs,
-                                tokenizer=getattr(self.processor, 'text_tokenizer', None) or getattr(self.processor, 'tokenizer', None),
-                                all_prefilled_outputs=copy.deepcopy(cached_prompt),
-                                audio_streamer=audio_streamer,
                                 max_new_tokens=None,  # Exactly like official demo
                                 cfg_scale=cfg_scale,
+                                tokenizer=self.processor.tokenizer,  # Exact tokenizer reference like official demo
                                 generation_config={
                                     "do_sample": True,  # Official demo uses do_sample parameter
                                     "temperature": 1.0,  # Fixed like official demo
                                     "top_p": 0.9,  # Fixed like official demo
                                 },
+                                audio_streamer=audio_streamer,
+                                # stop_check_fn=stop_event.is_set,  # We don't have stop_event, but this might be important
                                 verbose=False,
                                 refresh_negative=True,
+                                all_prefilled_outputs=copy.deepcopy(cached_prompt),  # Exact like official demo
                             )
                             end_time = time.time()
                             logger.info(f"Model generation completed in {end_time - start_time:.2f}s")
