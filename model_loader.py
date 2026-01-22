@@ -115,9 +115,9 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
             
             def generate(self, text: str, speaker_name: str = "Carter"):
                 """Generate audio from text"""
-                # Load voice preset for the speaker
-                voice_path = f"/app/vibevoice/demo/voices/streaming_model/en-{speaker_name}_man.pt"
                 try:
+                    # Load voice preset for the speaker
+                    voice_path = f"/app/vibevoice/demo/voices/streaming_model/en-{speaker_name}_man.pt"
                     import glob
                     # First try exact match for the speaker
                     voice_files = glob.glob(f"/app/vibevoice/demo/voices/streaming_model/en-{speaker_name}_*.pt")
@@ -140,30 +140,40 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                     
                     logger.info(f"Loading voice preset from: {voice_path}")
                     cached_prompt = torch.load(voice_path, map_location=self.model.device, weights_only=False)
+                    
+                    # Debug processor before processing
+                    logger.info(f"Processor type: {type(self.processor)}")
+                    if hasattr(self.processor, 'text_tokenizer'):
+                        logger.info(f"Text tokenizer type: {type(self.processor.text_tokenizer)}")
+                        if self.processor.text_tokenizer is None:
+                            logger.error("Text tokenizer is None!")
+                    
+                    # Process the text using the correct method
+                    inputs = self.processor.process_input_with_cached_prompt(
+                        text=text,
+                        cached_prompt=cached_prompt,
+                        padding=True,
+                        return_tensors="pt",
+                        return_attention_mask=True
+                    )
+                    
+                    # Move to model device
+                    for key in inputs:
+                        if isinstance(inputs[key], torch.Tensor):
+                            inputs[key] = inputs[key].to(self.model.device)
+                    
+                    # Generate audio
+                    with torch.no_grad():
+                        outputs = self.model.generate(**inputs)
+                    
+                    # Return audio data (convert to numpy if needed)
+                    return outputs.audio_values.cpu().numpy()
+                    
                 except Exception as e:
-                    logger.error(f"Failed to load voice preset: {e}")
+                    logger.error(f"Error in generate method: {e}")
+                    import traceback
+                    logger.error(f"Traceback: {traceback.format_exc()}")
                     raise e
-                
-                # Process the text using the correct method
-                inputs = self.processor.process_input_with_cached_prompt(
-                    text=text,
-                    cached_prompt=cached_prompt,
-                    padding=True,
-                    return_tensors="pt",
-                    return_attention_mask=True
-                )
-                
-                # Move to model device
-                for key in inputs:
-                    if isinstance(inputs[key], torch.Tensor):
-                        inputs[key] = inputs[key].to(self.model.device)
-                
-                # Generate audio
-                with torch.no_grad():
-                    outputs = self.model.generate(**inputs)
-                
-                # Return audio data (convert to numpy if needed)
-                return outputs.audio_values.cpu().numpy()
             
             def generate_streaming(self, text: str, speaker_name: str = "Carter"):
                 """Generate streaming audio from text"""
