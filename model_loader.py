@@ -289,10 +289,11 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                     logger.error(f"Traceback: {traceback.format_exc()}")
                     raise e
             
-            def generate_streaming(self, text: str, speaker_name: str = "Carter"):
+            def generate_streaming(self, text: str, speaker_name: str = "Carter", cfg_scale: float = 1.5, inference_steps: int = 5):
                 """Generate streaming audio from text using AudioStreamer"""
                 try:
                     logger.info(f"Starting streaming generation for: {text[:50]}...")
+                    logger.info(f"Parameters: CFG={cfg_scale}, Steps={inference_steps}")
                     
                     # Map speaker names to voice files
                     speaker_mapping = {
@@ -349,6 +350,9 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                     audio_streamer = AudioStreamer(batch_size=1, stop_signal=None, timeout=None)
                     logger.info("AudioStreamer created, starting generation...")
                     
+                    # Set inference steps on the model
+                    self.model.set_ddpm_inference_steps(num_steps=inference_steps)
+                    
                     # Start generation in a separate thread
                     import threading
                     import copy
@@ -362,7 +366,7 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                                 all_prefilled_outputs=copy.deepcopy(cached_prompt),
                                 audio_streamer=audio_streamer,
                                 max_new_tokens=None,
-                                cfg_scale=1.5,
+                                cfg_scale=cfg_scale,
                                 generation_config={
                                     "do_sample": True,
                                     "temperature": 1.0,

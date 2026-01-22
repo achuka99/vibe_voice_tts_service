@@ -164,16 +164,12 @@
         
         <div class="params-grid">
             <div class="param-input">
-                <label for="maxTokens">Max New Tokens</label>
-                <input type="number" id="maxTokens" value="8192" min="1" max="32768">
+                <label for="cfgScale">CFG</label>
+                <input type="number" id="cfgScale" value="1.5" min="1.3" max="3" step="0.05">
             </div>
             <div class="param-input">
-                <label for="temperature">Temperature</label>
-                <input type="number" id="temperature" value="1.0" min="0.1" max="2.0" step="0.1">
-            </div>
-            <div class="param-input">
-                <label for="topP">Top-p</label>
-                <input type="number" id="topP" value="0.9" min="0.1" max="1.0" step="0.1">
+                <label for="inferenceSteps">Inference Steps</label>
+                <input type="number" id="inferenceSteps" value="5" min="5" max="20" step="1">
             </div>
         </div>
         
@@ -221,9 +217,8 @@
             connectionInfo: document.getElementById('connectionInfo'),
             text: document.getElementById('text'),
             speaker: document.getElementById('speaker'),
-            maxTokens: document.getElementById('maxTokens'),
-            temperature: document.getElementById('temperature'),
-            topP: document.getElementById('topP'),
+            cfgScale: document.getElementById('cfgScale'),
+            inferenceSteps: document.getElementById('inferenceSteps'),
             connectBtn: document.getElementById('connectBtn'),
             generateBtn: document.getElementById('generateBtn'),
             generateHttpBtn: document.getElementById('generateHttpBtn'),
@@ -396,7 +391,7 @@
                     elements.generateHttpBtn.disabled = false;
                 };
                 
-                ws.onmessage = (event) => {
+                ws.onmessage = async (event) => {
                     log(`WebSocket received: ${typeof event.data}, constructor: ${event.data.constructor.name}`, 'info');
                     
                     if (typeof event.data === 'string') {
@@ -424,9 +419,15 @@
                     } else if (event.data instanceof Uint8Array) {
                         audioBuffer = event.data.buffer;
                     } else if (event.data.constructor.name === 'Blob') {
-                        // Convert Blob to ArrayBuffer
-                        log(`Converting Blob to ArrayBuffer, size: ${event.data.size}`, 'info');
-                        // Note: This would require async conversion, but let's try a different approach first
+                        // Convert Blob to ArrayBuffer asynchronously
+                        try {
+                            log(`Converting Blob to ArrayBuffer, size: ${event.data.size}`, 'info');
+                            audioBuffer = await event.data.arrayBuffer();
+                            log(`Blob converted to ArrayBuffer: ${audioBuffer.byteLength} bytes`, 'info');
+                        } catch (error) {
+                            log(`Failed to convert Blob to ArrayBuffer: ${error.message}`, 'error');
+                            return;
+                        }
                     } else if (typeof event.data === 'object' && event.data !== null) {
                         // Try to find binary data in the object
                         log(`Received object, checking for binary data...`, 'info');
@@ -515,7 +516,9 @@
             
             const message = {
                 text: text,
-                speaker_name: elements.speaker.value
+                speaker_name: elements.speaker.value,
+                cfg_scale: parseFloat(elements.cfgScale.value),
+                inference_steps: parseInt(elements.inferenceSteps.value)
             };
             
             log(`Sending: ${JSON.stringify(message)}`, 'info');

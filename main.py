@@ -334,9 +334,18 @@ async def websocket_tts(websocket: WebSocket):
             # Generate and stream audio chunks
             try:
                 logger.info("Starting audio streaming...")
+                
+                # Extract inference parameters
+                cfg_scale = data.get("cfg_scale", 1.5)
+                inference_steps = data.get("inference_steps", 5)
+                
+                logger.info(f"Inference params: CFG={cfg_scale}, Steps={inference_steps}")
+                
                 audio_chunks = model.generate_streaming(
                     text=text,
-                    speaker_name=speaker_name
+                    speaker_name=speaker_name,
+                    cfg_scale=cfg_scale,
+                    inference_steps=inference_steps
                 )
                 
                 chunk_count = 0
