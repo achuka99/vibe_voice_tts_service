@@ -1,10 +1,11 @@
 """
-Model loader for VibeVoice based on the Colab notebook implementation
+Model loader for VibeVoice based on the official documentation
 """
 import torch
 import logging
 from pathlib import Path
 import sys
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -15,40 +16,54 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
     # Add VibeVoice to path
     sys.path.insert(0, "/app/vibevoice")
     
-    # Try to find the correct import by checking what's available
     try:
-        # First, let's see what's in the demo module
-        import demo.vibevoice_realtime_demo as demo_module
-        logger.info(f"Available attributes in demo module: {dir(demo_module)}")
-        
-        # Look for the main class or function
-        for attr_name in dir(demo_module):
-            if 'VibeVoice' in attr_name or 'Demo' in attr_name:
-                logger.info(f"Found potential class: {attr_name}")
-        
-        # Try to import the main class (common patterns)
-        if hasattr(demo_module, 'VibeVoiceRealtimeDemo'):
-            model_class = demo_module.VibeVoiceRealtimeDemo
-        elif hasattr(demo_module, 'VibeVoiceRealtime'):
-            model_class = demo_module.VibeVoiceRealtime
-        elif hasattr(demo_module, 'VibeVoice'):
-            model_class = demo_module.VibeVoice
-        else:
-            # Try to import from the main vibevoice module
-            import vibevoice
-            logger.info(f"Available in vibevoice module: {dir(vibevoice)}")
-            if hasattr(vibevoice, 'VibeVoiceRealtime'):
-                model_class = vibevoice.VibeVoiceRealtime
-            else:
-                raise ImportError("Could not find VibeVoice model class")
+        # Import the actual model from the VibeVoice package
+        # Based on the documentation, we need to import the model class
+        from vibevoice.models.vibevoice_realtime import VibeVoiceRealtime
         
         logger.info(f"Loading VibeVoice model from {model_path} on device {device}")
         
+        # Set environment variables as done in the demo
+        os.environ["MODEL_PATH"] = model_path
+        os.environ["MODEL_DEVICE"] = device
+        
         # Create the model instance
-        model = model_class(model_path=model_path, device=device)
+        model = VibeVoiceRealtime(model_path=model_path, device=device)
         
         logger.info("✅ VibeVoice model loaded successfully!")
         return model
+        
+    except ImportError as e:
+        logger.error(f"Failed to import VibeVoiceRealtime: {e}")
+        # Try alternative import paths
+        try:
+            from vibevoice import VibeVoiceRealtime
+            logger.info("Using alternative import path")
+            
+            os.environ["MODEL_PATH"] = model_path
+            os.environ["MODEL_DEVICE"] = device
+            
+            model = VibeVoiceRealtime(model_path=model_path, device=device)
+            logger.info("✅ VibeVoice model loaded successfully!")
+            return model
+        except ImportError as e2:
+            logger.error(f"Alternative import also failed: {e2}")
+            
+            # Try to find what's available in the vibevoice package
+            try:
+                import vibevoice
+                logger.info(f"Available in vibevoice package: {[x for x in dir(vibevoice) if not x.startswith('_')]}")
+                
+                # Look for model-related modules
+                vibevoice_path = Path("/app/vibevoice")
+                models_path = vibevoice_path / "vibevoice" / "models"
+                if models_path.exists():
+                    logger.info(f"Available models: {[f.name for f in models_path.iterdir() if f.is_file() and f.name.endswith('.py')]}")
+                
+            except Exception as e3:
+                logger.error(f"Could not explore vibevoice package: {e3}")
+            
+            raise ImportError("Could not find VibeVoice model class. Check the installation.")
         
     except Exception as e:
         logger.error(f"Failed to load VibeVoice model: {e}")
