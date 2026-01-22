@@ -285,6 +285,7 @@
             merged.set(buffer, 0);
             merged.set(chunk, buffer.length);
             buffer = merged;
+            log(`Buffered audio: ${buffer.length} samples (${(buffer.length / SAMPLE_RATE).toFixed(2)}s)`, 'info');
         }
         
         function pullAudio(frameCount) {
@@ -321,6 +322,8 @@
                 const output = event.outputBuffer.getChannelData(0);
                 const needPrebuffer = !hasStartedPlayback;
                 const socketClosed = !ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING;
+                
+                log(`Audio process: buffer=${buffer.length}, needPrebuffer=${needPrebuffer}, socketClosed=${socketClosed}`, 'info');
                 
                 if (needPrebuffer) {
                     if (buffer.length >= minBufferSamples || socketClosed) {
@@ -394,6 +397,8 @@
                 };
                 
                 ws.onmessage = (event) => {
+                    log(`WebSocket received: ${typeof event.data}, constructor: ${event.data.constructor.name}`, 'info');
+                    
                     if (typeof event.data === 'string') {
                         // Handle JSON messages
                         try {
@@ -411,15 +416,45 @@
                         return;
                     }
                     
-                    // Handle binary audio data (PCM16)
+                    // Handle binary audio data (PCM16) - try multiple formats
+                    let audioBuffer = null;
+                    
                     if (event.data instanceof ArrayBuffer) {
-                        const rawBuffer = event.data;
+                        audioBuffer = event.data;
+                    } else if (event.data instanceof Uint8Array) {
+                        audioBuffer = event.data.buffer;
+                    } else if (event.data.constructor.name === 'Blob') {
+                        // Convert Blob to ArrayBuffer
+                        log(`Converting Blob to ArrayBuffer, size: ${event.data.size}`, 'info');
+                        // Note: This would require async conversion, but let's try a different approach first
+                    } else if (typeof event.data === 'object' && event.data !== null) {
+                        // Try to find binary data in the object
+                        log(`Received object, checking for binary data...`, 'info');
+                        log(`Object keys: ${Object.keys(event.data)}`, 'info');
+                        
+                        // Check if it's a typed array that got wrapped
+                        if (event.data.buffer instanceof ArrayBuffer) {
+                            audioBuffer = event.data.buffer;
+                            log(`Found buffer in object: ${audioBuffer.byteLength} bytes`, 'info');
+                        }
+                    }
+                    
+                    if (audioBuffer) {
+                        const rawBuffer = audioBuffer;
                         const view = new DataView(rawBuffer);
                         const floatChunk = new Float32Array(view.byteLength / 2);
+                        
+                        log(`Processing PCM16 chunk: ${view.byteLength} bytes -> ${floatChunk.length} samples`, 'info');
                         
                         // Convert PCM16 to float32
                         for (let i = 0; i < floatChunk.length; i++) {
                             floatChunk[i] = view.getInt16(i * 2, true) / 32768;
+                        }
+                        
+                        // Log some sample values for debugging
+                        if (!firstChunkReceived) {
+                            const sampleValues = Array.from(floatChunk.slice(0, 5));
+                            log(`First chunk samples: [${sampleValues.map(v => v.toFixed(4)).join(', ')}...]`, 'info');
                         }
                         
                         appendAudio(floatChunk);
@@ -428,8 +463,11 @@
                         
                         if (!firstChunkReceived) {
                             firstChunkReceived = true;
-                            log('🎧 First audio chunk received', 'success');
+                            log('🎧 First audio chunk received and processed', 'success');
                         }
+                    } else {
+                        log(`Could not extract audio buffer from data type: ${typeof event.data}, constructor: ${event.data.constructor.name}`, 'error');
+                        log(`Data content: ${JSON.stringify(event.data).substring(0, 200)}...`, 'error');
                     }
                 };
                 

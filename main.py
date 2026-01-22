@@ -307,6 +307,9 @@ async def websocket_tts(websocket: WebSocket):
     await websocket.accept()
     logger.info("WebSocket connection established")
     
+    # Set binary type for WebSocket
+    logger.info("Setting WebSocket binary type to arraybuffer")
+    
     if model is None:
         await websocket.send_json({
             "error": "Model not loaded",
@@ -330,14 +333,19 @@ async def websocket_tts(websocket: WebSocket):
             
             # Generate and stream audio chunks
             try:
+                logger.info("Starting audio streaming...")
                 audio_chunks = model.generate_streaming(
                     text=text,
                     speaker_name=speaker_name
                 )
                 
+                chunk_count = 0
                 for chunk in audio_chunks:
+                    logger.info(f"Sending chunk {chunk_count + 1}: {len(chunk)} bytes")
                     await websocket.send_bytes(chunk)
+                    chunk_count += 1
                 
+                logger.info(f"Sent {chunk_count} audio chunks")
                 # Send completion message
                 await websocket.send_json({"status": "complete"})
                 
