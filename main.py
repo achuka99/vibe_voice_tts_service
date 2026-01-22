@@ -12,6 +12,7 @@ import logging
 import os
 from pathlib import Path
 from huggingface_hub import snapshot_download
+from model_loader import load_vibevoice_model
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -123,31 +124,17 @@ async def load_model():
     try:
         logger.info(f"Loading model from {MODEL_PATH}")
         
-        # Import VibeVoice modules
-        import sys
-        sys.path.insert(0, "/app/vibevoice")
-        
-        # Import the model class
-        # Note: This is a placeholder - adjust based on actual VibeVoice API
-        from vibevoice.models import VibeVoiceRealtime
-        
         device = "cuda" if os.path.exists("/usr/local/cuda") else "cpu"
         logger.info(f"Using device: {device}")
         
-        model = VibeVoiceRealtime(
-            model_path=MODEL_PATH,
-            device=device
-        )
+        model = load_vibevoice_model(MODEL_PATH, device)
         
         logger.info("Model loaded successfully!")
         return True
         
     except Exception as e:
         logger.error(f"Failed to load model: {e}")
-        logger.error("Note: The model loading code may need adjustment based on actual VibeVoice API")
-        # For now, set model to a placeholder to allow the API to start
-        model = {"status": "mock", "message": "Model loading needs implementation"}
-        return False
+        raise RuntimeError(f"Model loading failed: {e}")
 
 
 @app.on_event("startup")
@@ -172,7 +159,7 @@ async def root():
         "status": "running",
         "model": MODEL_REPO,
         "model_path": MODEL_PATH,
-        "model_loaded": model is not None and not isinstance(model, dict),
+        "model_loaded": model is not None,
         "endpoints": {
             "tts": "/api/tts",
             "websocket": "/ws/tts",
@@ -189,7 +176,7 @@ async def health_check():
     
     return {
         "status": "healthy" if model is not None else "unhealthy",
-        "model_loaded": model is not None and not isinstance(model, dict),
+        "model_loaded": model is not None,
         "model_exists": model_exists,
         "model_path": MODEL_PATH,
         "auto_download": AUTO_DOWNLOAD
@@ -230,12 +217,6 @@ async def text_to_speech(request: TTSRequest):
         raise HTTPException(
             status_code=503,
             detail="Model not loaded. Try /api/download-model endpoint."
-        )
-    
-    if isinstance(model, dict):
-        raise HTTPException(
-            status_code=503,
-            detail="Model is in mock mode. Check logs for loading errors."
         )
     
     try:
@@ -286,7 +267,7 @@ async def websocket_tts(websocket: WebSocket):
     await websocket.accept()
     logger.info("WebSocket connection established")
     
-    if model is None or isinstance(model, dict):
+    if model is None:
         await websocket.send_json({
             "error": "Model not loaded",
             "message": "Use /api/download-model to download the model first"
