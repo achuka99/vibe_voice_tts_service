@@ -56,10 +56,15 @@ async def download_model():
     """Download model from Hugging Face if not present"""
     model_path = Path(MODEL_PATH)
     
-    # Check if model already exists
-    if model_path.exists() and any(model_path.iterdir()):
-        logger.info(f"Model already exists at {MODEL_PATH}")
-        return True
+    # Check if model actually exists with model files (not just cache)
+    if model_path.exists():
+        # Look for actual model files, not just cache
+        model_files = list(model_path.glob("*.json")) + list(model_path.glob("*.safetensors")) + list(model_path.glob("*.bin"))
+        if model_files:
+            logger.info(f"Model already exists at {MODEL_PATH} with {len(model_files)} files")
+            return True
+        else:
+            logger.info(f"Model directory exists but no model files found at {MODEL_PATH}")
     
     if not AUTO_DOWNLOAD:
         logger.error(f"Model not found at {MODEL_PATH} and AUTO_DOWNLOAD is disabled")
@@ -68,6 +73,11 @@ async def download_model():
     try:
         logger.info(f"Downloading model {MODEL_REPO} to {MODEL_PATH}")
         logger.info("This may take several minutes on first run...")
+        
+        # Remove existing directory if it's incomplete (only cache)
+        if model_path.exists():
+            import shutil
+            shutil.rmtree(model_path)
         
         # Create directory if it doesn't exist
         model_path.parent.mkdir(parents=True, exist_ok=True)
@@ -80,8 +90,14 @@ async def download_model():
             resume_download=True
         )
         
-        logger.info("Model downloaded successfully!")
-        return True
+        # Verify download was successful
+        model_files = list(model_path.glob("*.json")) + list(model_path.glob("*.safetensors")) + list(model_path.glob("*.bin"))
+        if model_files:
+            logger.info(f"Model downloaded successfully! Found {len(model_files)} model files")
+            return True
+        else:
+            logger.error("Download completed but no model files found")
+            return False
         
     except Exception as e:
         logger.error(f"Failed to download model: {e}")

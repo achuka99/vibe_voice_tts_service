@@ -26,6 +26,10 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                 self.current_device = lambda: 0
                 self.empty_cache = lambda: None
                 self.synchronize = lambda: None
+                self.manual_seed = lambda seed: None
+                self.initial_seed = lambda: 0
+                self.get_rng_state = lambda: None
+                self.set_rng_state = lambda state: None
         
         torch.xpu = XPUDevice()
     
