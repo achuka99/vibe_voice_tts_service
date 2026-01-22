@@ -350,6 +350,9 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                     audio_streamer = AudioStreamer(batch_size=1, stop_signal=None, timeout=None)
                     logger.info("AudioStreamer created, starting generation...")
                     
+                    # Create stop event like official demo
+                    stop_event = threading.Event()
+                    
                     # Start generation in a separate thread
                     import threading
                     import copy
@@ -382,7 +385,7 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                                     "top_p": 0.9,  # Fixed like official demo
                                 },
                                 audio_streamer=audio_streamer,
-                                # stop_check_fn=stop_event.is_set,  # We don't have stop_event, but this might be important
+                                stop_check_fn=stop_event.is_set,  # CRITICAL: Missing piece from official demo!
                                 verbose=False,
                                 refresh_negative=True,
                                 all_prefilled_outputs=copy.deepcopy(cached_prompt),  # Exact like official demo
