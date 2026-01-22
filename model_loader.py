@@ -16,6 +16,19 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
     # Add VibeVoice to path
     sys.path.insert(0, "/app/vibevoice")
     
+    # Fix for torch.xpu error - monkey patch if it doesn't exist
+    if not hasattr(torch, 'xpu'):
+        logger.info("Adding torch.xpu compatibility layer")
+        class XPUDevice:
+            def __init__(self):
+                self.is_available = lambda: False
+                self.device_count = lambda: 0
+                self.current_device = lambda: 0
+                self.empty_cache = lambda: None
+                self.synchronize = lambda: None
+        
+        torch.xpu = XPUDevice()
+    
     try:
         # Import the inference model and processor
         from vibevoice.modular.modeling_vibevoice_streaming_inference import VibeVoiceStreamingForConditionalGenerationInference
