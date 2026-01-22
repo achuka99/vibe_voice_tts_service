@@ -360,6 +360,14 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                             logger.info("Starting model.generate() in thread...")
                             start_time = time.time()
                             
+                            # CRITICAL: Configure noise scheduler exactly like official demo
+                            self.model.model.noise_scheduler = self.model.model.noise_scheduler.from_config(
+                                self.model.model.noise_scheduler.config,
+                                algorithm_type="sde-dpmsolver++",
+                                beta_schedule="squaredcos_cap_v2",
+                            )
+                            logger.info("Noise scheduler configured with sde-dpmsolver++")
+                            
                             # Set inference steps RIGHT before generation (like official demo)
                             self.model.set_ddpm_inference_steps(num_steps=inference_steps)
                             
