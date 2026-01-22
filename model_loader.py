@@ -59,6 +59,20 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
         
         # Load the processor
         processor = VibeVoiceStreamingProcessor.from_pretrained(model_path)
+        logger.info(f"Processor loaded successfully")
+        logger.info(f"Processor attributes: {[attr for attr in dir(processor) if not attr.startswith('_')]}")
+        
+        # Check if tokenizer exists
+        if hasattr(processor, 'tokenizer'):
+            logger.info(f"Tokenizer found: {type(processor.tokenizer)}")
+        else:
+            logger.warning("No tokenizer attribute found in processor")
+        
+        # Try to access text tokenizer
+        if hasattr(processor, 'text_tokenizer'):
+            logger.info(f"Text tokenizer found: {type(processor.text_tokenizer)}")
+        else:
+            logger.warning("No text_tokenizer attribute found in processor")
         
         # Load model with device-specific logic
         try:
