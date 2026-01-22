@@ -69,21 +69,29 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
             def generate(self, text: str, speaker_name: str = "Carter"):
                 """Generate audio from text"""
                 # Load voice preset for the speaker
-                voice_path = f"/app/vibevoice/demo/voices/streaming_model/{speaker_name.lower()}.pt"
+                voice_path = f"/app/vibevoice/demo/voices/streaming_model/en-{speaker_name}_man.pt"
                 try:
                     import glob
-                    voice_files = glob.glob(f"/app/vibevoice/demo/voices/streaming_model/{speaker_name.lower()}*.pt")
+                    # First try exact match for the speaker
+                    voice_files = glob.glob(f"/app/vibevoice/demo/voices/streaming_model/en-{speaker_name}_*.pt")
                     if voice_files:
                         voice_path = voice_files[0]
                     else:
-                        # Try to find any voice file
-                        voice_files = glob.glob("/app/vibevoice/demo/voices/streaming_model/*.pt")
+                        # Try to find any English voice file
+                        voice_files = glob.glob("/app/vibevoice/demo/voices/streaming_model/en-*.pt")
                         if voice_files:
                             voice_path = voice_files[0]
                             logger.warning(f"Speaker '{speaker_name}' not found, using default voice: {voice_path}")
                         else:
-                            raise FileNotFoundError("No voice files found")
+                            # Fallback to any voice file
+                            voice_files = glob.glob("/app/vibevoice/demo/voices/streaming_model/*.pt")
+                            if voice_files:
+                                voice_path = voice_files[0]
+                                logger.warning(f"No English voice found, using default voice: {voice_path}")
+                            else:
+                                raise FileNotFoundError("No voice files found")
                     
+                    logger.info(f"Loading voice preset from: {voice_path}")
                     cached_prompt = torch.load(voice_path, map_location=self.model.device, weights_only=False)
                 except Exception as e:
                     logger.error(f"Failed to load voice preset: {e}")
