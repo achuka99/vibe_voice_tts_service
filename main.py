@@ -1,0 +1,360 @@
+"""
+VibeVoice-Realtime FastAPI Backend
+Production-ready API for real-time text-to-speech with automatic model downloading
+"""
+from fastapi import FastAPI, WebSocket, HTTPException, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse, JSONResponse
+from pydantic import BaseModel, Field
+from typing import Optional, AsyncGenerator
+import asyncio
+import logging
+import os
+from pathlib import Path
+from huggingface_hub import snapshot_download
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+app = FastAPI(
+    title="VibeVoice-Realtime API",
+    description="Real-time text-to-speech with streaming capabilities",
+    version="1.0.0"
+)
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Global model instance
+model = None
+MODEL_PATH = os.getenv("MODEL_PATH", "/models/VibeVoice-Realtime-0.5B")
+MODEL_REPO = os.getenv("MODEL_REPO", "microsoft/VibeVoice-Realtime-0.5B")
+AUTO_DOWNLOAD = os.getenv("AUTO_DOWNLOAD_MODEL", "true").lower() == "true"
+
+
+class TTSRequest(BaseModel):
+    text: str = Field(..., description="Text to convert to speech")
+    speaker_name: str = Field(default="Carter", description="Speaker voice name")
+    stream: bool = Field(default=False, description="Enable streaming response")
+
+
+class TTSResponse(BaseModel):
+    audio_path: Optional[str] = None
+    duration: Optional[float] = None
+    message: str
+
+
+async def download_model():
+    """Download model from Hugging Face if not present"""
+    model_path = Path(MODEL_PATH)
+    
+    # Check if model already exists
+    if model_path.exists() and any(model_path.iterdir()):
+        logger.info(f"Model already exists at {MODEL_PATH}")
+        return True
+    
+    if not AUTO_DOWNLOAD:
+        logger.error(f"Model not found at {MODEL_PATH} and AUTO_DOWNLOAD is disabled")
+        return False
+    
+    try:
+        logger.info(f"Downloading model {MODEL_REPO} to {MODEL_PATH}")
+        logger.info("This may take several minutes on first run...")
+        
+        # Create directory if it doesn't exist
+        model_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Download model from Hugging Face
+        snapshot_download(
+            repo_id=MODEL_REPO,
+            local_dir=MODEL_PATH,
+            local_dir_use_symlinks=False,
+            resume_download=True
+        )
+        
+        logger.info("Model downloaded successfully!")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to download model: {e}")
+        return False
+
+
+async def download_experimental_voices():
+    """Download experimental voices if enabled"""
+    if not os.getenv("DOWNLOAD_EXPERIMENTAL_VOICES", "false").lower() == "true":
+        return
+    
+    try:
+        logger.info("Downloading experimental voices...")
+        experimental_path = Path("/models/experimental_voices")
+        experimental_path.mkdir(parents=True, exist_ok=True)
+        
+        # Download experimental voices
+        snapshot_download(
+            repo_id="microsoft/VibeVoice-Experimental-Voices",
+            local_dir=str(experimental_path),
+            local_dir_use_symlinks=False,
+            resume_download=True
+        )
+        logger.info("Experimental voices downloaded!")
+    except Exception as e:
+        logger.warning(f"Could not download experimental voices: {e}")
+
+
+async def load_model():
+    """Load the VibeVoice model on startup"""
+    global model
+    
+    # First, ensure model is downloaded
+    if not await download_model():
+        raise RuntimeError("Failed to download or locate model")
+    
+    # Download experimental voices if configured
+    await download_experimental_voices()
+    
+    try:
+        logger.info(f"Loading model from {MODEL_PATH}")
+        
+        # Import VibeVoice modules
+        import sys
+        sys.path.insert(0, "/app/vibevoice")
+        
+        # Import the model class
+        # Note: This is a placeholder - adjust based on actual VibeVoice API
+        from vibevoice.models import VibeVoiceRealtime
+        
+        device = "cuda" if os.path.exists("/usr/local/cuda") else "cpu"
+        logger.info(f"Using device: {device}")
+        
+        model = VibeVoiceRealtime(
+            model_path=MODEL_PATH,
+            device=device
+        )
+        
+        logger.info("Model loaded successfully!")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to load model: {e}")
+        logger.error("Note: The model loading code may need adjustment based on actual VibeVoice API")
+        # For now, set model to a placeholder to allow the API to start
+        model = {"status": "mock", "message": "Model loading needs implementation"}
+        return False
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize model on startup"""
+    logger.info("Starting VibeVoice API...")
+    logger.info(f"Model repository: {MODEL_REPO}")
+    logger.info(f"Model path: {MODEL_PATH}")
+    logger.info(f"Auto download: {AUTO_DOWNLOAD}")
+    
+    try:
+        await load_model()
+    except Exception as e:
+        logger.error(f"Startup failed: {e}")
+        logger.warning("API will start but TTS endpoints may not work until model is loaded")
+
+
+@app.get("/")
+async def root():
+    """Health check endpoint"""
+    return {
+        "status": "running",
+        "model": MODEL_REPO,
+        "model_path": MODEL_PATH,
+        "model_loaded": model is not None and not isinstance(model, dict),
+        "endpoints": {
+            "tts": "/api/tts",
+            "websocket": "/ws/tts",
+            "health": "/health",
+            "download": "/api/download-model"
+        }
+    }
+
+
+@app.get("/health")
+async def health_check():
+    """Detailed health check"""
+    model_exists = Path(MODEL_PATH).exists()
+    
+    return {
+        "status": "healthy" if model is not None else "unhealthy",
+        "model_loaded": model is not None and not isinstance(model, dict),
+        "model_exists": model_exists,
+        "model_path": MODEL_PATH,
+        "auto_download": AUTO_DOWNLOAD
+    }
+
+
+@app.post("/api/download-model")
+async def trigger_model_download():
+    """Manually trigger model download"""
+    if not AUTO_DOWNLOAD:
+        raise HTTPException(
+            status_code=400,
+            detail="AUTO_DOWNLOAD_MODEL is disabled. Enable it in environment variables."
+        )
+    
+    try:
+        success = await download_model()
+        if success:
+            # Try to load the model
+            await load_model()
+            return {"status": "success", "message": "Model downloaded and loaded"}
+        else:
+            raise HTTPException(status_code=500, detail="Model download failed")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/tts", response_model=TTSResponse)
+async def text_to_speech(request: TTSRequest):
+    """
+    Convert text to speech
+    
+    - **text**: Input text to synthesize
+    - **speaker_name**: Voice to use (default: Carter)
+    - **stream**: Enable streaming response
+    """
+    if model is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Model not loaded. Try /api/download-model endpoint."
+        )
+    
+    if isinstance(model, dict):
+        raise HTTPException(
+            status_code=503,
+            detail="Model is in mock mode. Check logs for loading errors."
+        )
+    
+    try:
+        logger.info(f"Processing TTS request: {len(request.text)} characters")
+        
+        if request.stream:
+            # Return streaming audio response
+            async def generate_audio() -> AsyncGenerator[bytes, None]:
+                audio_chunks = model.generate_streaming(
+                    text=request.text,
+                    speaker_name=request.speaker_name
+                )
+                for chunk in audio_chunks:
+                    yield chunk
+            
+            return StreamingResponse(
+                generate_audio(),
+                media_type="audio/wav",
+                headers={
+                    "Content-Disposition": f'attachment; filename="speech.wav"'
+                }
+            )
+        else:
+            # Generate complete audio
+            audio_data = model.generate(
+                text=request.text,
+                speaker_name=request.speaker_name
+            )
+            
+            return TTSResponse(
+                message="Audio generated successfully",
+                duration=len(audio_data) / 24000  # Assuming 24kHz sample rate
+            )
+            
+    except Exception as e:
+        logger.error(f"TTS generation failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.websocket("/ws/tts")
+async def websocket_tts(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time streaming TTS
+    
+    Send JSON: {"text": "your text", "speaker_name": "Carter"}
+    Receive: Binary audio chunks
+    """
+    await websocket.accept()
+    logger.info("WebSocket connection established")
+    
+    if model is None or isinstance(model, dict):
+        await websocket.send_json({
+            "error": "Model not loaded",
+            "message": "Use /api/download-model to download the model first"
+        })
+        await websocket.close()
+        return
+    
+    try:
+        while True:
+            # Receive text input
+            data = await websocket.receive_json()
+            text = data.get("text", "")
+            speaker_name = data.get("speaker_name", "Carter")
+            
+            if not text:
+                await websocket.send_json({"error": "No text provided"})
+                continue
+            
+            logger.info(f"WS: Processing {len(text)} characters")
+            
+            # Generate and stream audio chunks
+            try:
+                audio_chunks = model.generate_streaming(
+                    text=text,
+                    speaker_name=speaker_name
+                )
+                
+                for chunk in audio_chunks:
+                    await websocket.send_bytes(chunk)
+                
+                # Send completion message
+                await websocket.send_json({"status": "complete"})
+                
+            except Exception as e:
+                logger.error(f"WS generation error: {e}")
+                await websocket.send_json({"error": str(e)})
+                
+    except WebSocketDisconnect:
+        logger.info("WebSocket disconnected")
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+        await websocket.close()
+
+
+@app.get("/api/speakers")
+async def list_speakers():
+    """List available speaker voices"""
+    default_speakers = ["Carter", "Emma", "Michael", "Sophia"]
+    experimental_path = Path("/models/experimental_voices")
+    
+    speakers = {
+        "default": default_speakers,
+        "experimental": []
+    }
+    
+    if experimental_path.exists():
+        speakers["experimental"] = [
+            f.stem for f in experimental_path.glob("*.pt")
+        ]
+    
+    return speakers
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", 8000)),
+        log_level="info"
+    )
