@@ -356,16 +356,18 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                     # Start generation in a separate thread
                     import threading
                     import copy
+                    import time
                     
                     def run_generation():
                         try:
                             logger.info("Starting model.generate() in thread...")
+                            start_time = time.time()
                             self.model.generate(
                                 **inputs,
                                 tokenizer=getattr(self.processor, 'text_tokenizer', None) or getattr(self.processor, 'tokenizer', None),
                                 all_prefilled_outputs=copy.deepcopy(cached_prompt),
                                 audio_streamer=audio_streamer,
-                                max_new_tokens=None,
+                                max_new_tokens=8192,  # Set a reasonable max token limit
                                 cfg_scale=cfg_scale,
                                 generation_config={
                                     "do_sample": True,
@@ -375,7 +377,8 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                                 verbose=False,
                                 refresh_negative=True,
                             )
-                            logger.info("Model generation completed")
+                            end_time = time.time()
+                            logger.info(f"Model generation completed in {end_time - start_time:.2f}s")
                         except Exception as e:
                             logger.error(f"Generation error: {e}")
                             audio_streamer.end()
@@ -422,7 +425,9 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                     finally:
                         logger.info(f"Stream ended, sent {chunks_sent} chunks")
                         audio_streamer.end()
-                        thread.join()
+                        thread.join(timeout=30)  # Wait up to 30 seconds for thread to complete
+                        if thread.is_alive():
+                            logger.warning("Generation thread still running after timeout")
                         
                 except Exception as e:
                     logger.error(f"Error in generate_streaming method: {e}")
