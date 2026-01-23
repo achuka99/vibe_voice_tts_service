@@ -369,7 +369,7 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                     # Use the exact same parameters as official demo
                     self.model.generate(
                         **inputs,
-                        max_new_tokens=None,
+                        max_new_tokens=None,  # ✅ Back to None - let generation complete naturally
                         cfg_scale=cfg_scale,
                         tokenizer=self.processor.tokenizer,
                         generation_config={
@@ -505,10 +505,14 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                             logger.warning("This suggests AudioStreamer is not producing audio chunks properly")
                         
                     finally:
-                        logger.info("Cleaning up...")
-                        stop_signal.set()
+                        logger.info("Stream completed, waiting for generation thread to finish...")
+                        # Don't set stop_signal immediately - wait for natural completion
                         audio_streamer.end()
-                        thread.join()
+                        thread.join(timeout=30)  # Wait up to 30 seconds for natural completion
+                        if thread.is_alive():
+                            logger.warning("Generation thread still alive, forcing stop...")
+                            stop_signal.set()
+                            thread.join(timeout=5)  # Final wait with stop signal
                         if errors:
                             emit("generation_error", message=str(errors[0]))
                             raise errors[0]
@@ -524,6 +528,15 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
         # CRITICAL: Put model in eval mode like official demo
         model.eval()
         logger.info("Model set to eval mode")
+        
+        # ✅ CRITICAL: Configure noise scheduler like official demo
+        model.model.noise_scheduler = model.model.noise_scheduler.from_config(
+            model.model.noise_scheduler.config,
+            algorithm_type="sde-dpmsolver++",
+            beta_schedule="squaredcos_cap_v2",
+        )
+        model.set_ddpm_inference_steps(num_steps=5)  # Default inference steps
+        logger.info("Noise scheduler configured like official demo")
         
         logger.info("✅ VibeVoice model loaded successfully!")
         return wrapped_model
