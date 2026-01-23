@@ -404,7 +404,6 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                         logger.info("Getting audio stream...")
                         stream = audio_streamer.get_stream(0)
                         
-                        # Use the official demo approach - simple for loop over stream
                         for audio_chunk in stream:
                             logger.info(f"Received audio chunk: {type(audio_chunk)}, shape: {getattr(audio_chunk, 'shape', 'N/A')}")
                             
@@ -418,13 +417,12 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                             
                             logger.info(f"Audio chunk shape after processing: {audio_chunk.shape}")
                             
-                            # Normalize and convert to PCM16
+                            # Normalize and convert to PCM16 (exactly like official demo)
                             peak = np.max(np.abs(audio_chunk)) if audio_chunk.size else 0.0
                             if peak > 1.0:
                                 audio_chunk = audio_chunk / peak
                             
-                            # Clip to [-1, 1] and convert to int16
-                            audio_chunk = np.clip(audio_chunk, -1.0, 1.0)
+                            # Convert to int16 and yield as bytes (exactly like official demo)
                             pcm16 = (audio_chunk * 32767.0).astype(np.int16)
                             
                             logger.info(f"Yielding chunk {chunks_sent + 1}: {pcm16.nbytes} bytes")
@@ -432,19 +430,13 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                             
                             # Yield as bytes
                             yield pcm16.tobytes()
-                        
-                        # Let the stream complete naturally - don't wait here!
-                        logger.info(f"Stream completed naturally, sent {chunks_sent} chunks total")
-                        
-                    except Exception as e:
-                        logger.error(f"Stream error: {e}")
-                        raise e
                     finally:
-                        logger.info(f"Stream ended, sent {chunks_sent} chunks")
-                        audio_streamer.end()
-                        if thread.is_alive():
-                            logger.warning("Generation thread still running after stream end")
-                            thread.join(timeout=5)
+                        # CRITICAL: Use official demo's cleanup sequence
+                        logger.info("Stream ended, performing cleanup...")
+                        stop_event.set()          # ✅ Signal to stop generation
+                        audio_streamer.end()       # ✅ End the audio streamer
+                        thread.join()              # ✅ Wait for thread completion
+                        logger.info(f"Generation completed, sent {chunks_sent} chunks total")
                         
                 except Exception as e:
                     logger.error(f"Error in generate_streaming method: {e}")
