@@ -10,6 +10,8 @@ import numpy as np
 from pathlib import Path
 from datetime import datetime
 import uuid
+from typing import Optional, Iterator, Callable, Dict, Any
+import threading
 
 # Apply torch.xpu compatibility fix at the very top
 if not hasattr(torch, 'xpu'):
