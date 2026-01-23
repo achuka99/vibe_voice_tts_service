@@ -12,6 +12,7 @@ from datetime import datetime
 import uuid
 from typing import Optional, Iterator, Callable, Dict, Any
 import threading
+import copy
 
 # Apply torch.xpu compatibility fix at the very top
 if not hasattr(torch, 'xpu'):
