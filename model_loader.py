@@ -351,7 +351,7 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
             def _run_generation(
                 self,
                 inputs,
-                audio_streamer,
+                audio_streamer: AudioStreamer,
                 errors,
                 cfg_scale: float,
                 do_sample: bool,
@@ -368,18 +368,16 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                     # Use the exact same parameters as official demo
                     self.model.generate(
                         **inputs,
-                        tokenizer=getattr(self.processor, 'text_tokenizer', None) or getattr(self.processor, 'tokenizer', None),
-                        all_prefilled_outputs=prefilled_outputs,
                         max_new_tokens=None,
-                        do_sample=do_sample,
-                        temperature=temperature,
-                        top_p=top_p,
                         cfg_scale=cfg_scale,
+                        tokenizer=self.processor.tokenizer,  # ✅ Use processor.tokenizer like official demo
+                        generation_config={  # ✅ Use generation_config like official demo
+                            "do_sample": do_sample,
+                            "temperature": temperature,
+                            "top_p": top_p,
+                            "refresh_negative": refresh_negative,
+                        },
                         stop_check_fn=stop_event.is_set,
-                        use_cache=True,
-                        output_attentions=False,
-                        output_hidden_states=False,
-                        return_dict_in_generate=True,
                     )
                     
                     logger.info("Generation completed successfully")
