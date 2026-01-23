@@ -363,6 +363,8 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
             ):
                 """Run generation like official demo"""
                 try:
+                    logger.info(f"Starting generation with params: do_sample={do_sample}, temperature={temperature}, top_p={top_p}, cfg_scale={cfg_scale}")
+                    
                     # Use the exact same parameters as official demo
                     self.model.generate(
                         **inputs,
@@ -379,9 +381,13 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                         output_hidden_states=False,
                         return_dict_in_generate=True,
                     )
+                    
+                    logger.info("Generation completed successfully")
                 except Exception as exc:
+                    logger.error(f"Generation error: {exc}")
+                    import traceback
+                    logger.error(f"Traceback: {traceback.format_exc()}")
                     errors.append(exc)
-                    traceback.print_exc()
                     audio_streamer.end()
 
             def generate_streaming(
@@ -402,6 +408,9 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                     if not text.strip():
                         return
                     text = text.replace("'", "'")
+                    
+                    logger.info(f"Starting streaming generation for: {text[:50]}...")
+                    logger.info(f"Parameters: CFG={cfg_scale}, Steps={inference_steps}, do_sample={do_sample}, temperature={temperature}, top_p={top_p}")
                     
                     # Use voice_key like official demo
                     selected_voice, prefilled_outputs = self._get_voice_resources(voice_key)
@@ -426,10 +435,13 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                         self.model.set_ddpm_inference_steps(num_steps=steps_to_use)
 
                     inputs = self._prepare_inputs(text, prefilled_outputs)
+                    logger.info(f"Inputs prepared: {list(inputs.keys())}")
+                    
                     audio_streamer = AudioStreamer(batch_size=1, stop_signal=None, timeout=None)
                     errors: list = []
                     stop_signal = stop_event or threading.Event()
 
+                    logger.info("Starting generation thread...")
                     thread = threading.Thread(
                         target=self._run_generation,
                         kwargs={
@@ -449,10 +461,15 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                     thread.start()
 
                     generated_samples = 0
+                    logger.info("Starting to receive audio stream...")
 
                     try:
                         stream = audio_streamer.get_stream(0)
+                        chunk_count = 0
                         for audio_chunk in stream:
+                            chunk_count += 1
+                            logger.info(f"Received chunk {chunk_count}: {type(audio_chunk)}, shape: {getattr(audio_chunk, 'shape', 'N/A')}")
+                            
                             if torch.is_tensor(audio_chunk):
                                 audio_chunk = audio_chunk.detach().cpu().to(torch.float32).numpy()
                             else:
@@ -473,8 +490,12 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                             )
 
                             chunk_to_yield = audio_chunk.astype(np.float32, copy=False)
+                            logger.info(f"Yielding chunk {chunk_count}: {chunk_to_yield.nbytes} bytes")
                             yield chunk_to_yield
+                        
+                        logger.info(f"Stream completed after {chunk_count} chunks")
                     finally:
+                        logger.info("Cleaning up...")
                         stop_signal.set()
                         audio_streamer.end()
                         thread.join()
