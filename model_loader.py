@@ -370,14 +370,17 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                         **inputs,
                         max_new_tokens=None,
                         cfg_scale=cfg_scale,
-                        tokenizer=self.processor.tokenizer,  # ✅ Use processor.tokenizer like official demo
-                        generation_config={  # ✅ Use generation_config like official demo
+                        tokenizer=self.processor.tokenizer,
+                        generation_config={
                             "do_sample": do_sample,
-                            "temperature": temperature,
-                            "top_p": top_p,
-                            "refresh_negative": refresh_negative,
+                            "temperature": temperature if do_sample else 1.0,
+                            "top_p": top_p if do_sample else 1.0,
                         },
+                        audio_streamer=audio_streamer,  # ✅ CRITICAL - Connect AudioStreamer!
                         stop_check_fn=stop_event.is_set,
+                        verbose=False,
+                        refresh_negative=refresh_negative,
+                        all_prefilled_outputs=copy.deepcopy(prefilled_outputs),  # ✅ CRITICAL - Fix NoneType error
                     )
                     
                     logger.info("Generation completed successfully")
