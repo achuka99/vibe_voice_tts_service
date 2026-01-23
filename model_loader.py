@@ -466,6 +466,8 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                     try:
                         stream = audio_streamer.get_stream(0)
                         chunk_count = 0
+                        logger.info("Starting to iterate over audio stream...")
+                        
                         for audio_chunk in stream:
                             chunk_count += 1
                             logger.info(f"Received chunk {chunk_count}: {type(audio_chunk)}, shape: {getattr(audio_chunk, 'shape', 'N/A')}")
@@ -494,6 +496,12 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                             yield chunk_to_yield
                         
                         logger.info(f"Stream completed after {chunk_count} chunks")
+                        
+                        # Add debug info about the stream
+                        if chunk_count == 0:
+                            logger.warning("NO CHUNKS WERE YIELDED FROM AUDIO STREAMER!")
+                            logger.warning("This suggests AudioStreamer is not producing audio chunks properly")
+                        
                     finally:
                         logger.info("Cleaning up...")
                         stop_signal.set()
