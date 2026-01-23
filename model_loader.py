@@ -289,149 +289,196 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                     logger.error(f"Traceback: {traceback.format_exc()}")
                     raise e
             
-            def generate_streaming(self, text: str, speaker_name: str = "Carter", cfg_scale: float = 1.5, inference_steps: int = 5):
-                """Generate streaming audio from text using AudioStreamer"""
-                try:
-                    logger.info(f"Starting streaming generation for: {text[:50]}...")
-                    logger.info(f"Parameters: CFG={cfg_scale}, Steps={inference_steps}")
-                    
-                    # Map speaker names to voice files
-                    speaker_mapping = {
-                        "Carter": "en-Carter_man",
-                        "Davis": "en-Davis_man", 
-                        "Emma": "en-Emma_woman",
-                        "Frank": "en-Frank_man",
-                        "Grace": "en-Grace_woman",
-                        "Mike": "en-Mike_man"
-                    }
-                    
-                    # Get the correct voice file name
-                    voice_name_key = speaker_mapping.get(speaker_name, "en-Carter_man")
-                    voice_path = f"/app/vibevoice/demo/voices/streaming_model/{voice_name_key}.pt"
-                    
-                    import glob
-                    # First try exact match for speaker
-                    voice_files = glob.glob(f"/app/vibevoice/demo/voices/streaming_model/{voice_name_key}*.pt")
+            def _get_voice_resources(self, voice_key: Optional[str] = None):
+                """Get voice resources like official demo"""
+                import glob
+                
+                # Map speaker names to voice files
+                speaker_mapping = {
+                    "Carter": "en-Carter_man",
+                    "Davis": "en-Davis_man", 
+                    "Emma": "en-Emma_woman",
+                    "Frank": "en-Frank_man",
+                    "Grace": "en-Grace_woman",
+                    "Mike": "en-Mike_man"
+                }
+                
+                # Get the correct voice file name
+                voice_name_key = speaker_mapping.get(voice_key, "en-Carter_man")
+                voice_path = f"/app/vibevoice/demo/voices/streaming_model/{voice_name_key}.pt"
+                
+                # First try exact match for speaker
+                voice_files = glob.glob(f"/app/vibevoice/demo/voices/streaming_model/{voice_name_key}*.pt")
+                if voice_files:
+                    voice_path = voice_files[0]
+                else:
+                    # Try to find any English voice file
+                    voice_files = glob.glob("/app/vibevoice/demo/voices/streaming_model/en-*.pt")
                     if voice_files:
                         voice_path = voice_files[0]
                     else:
-                        # Try to find any English voice file
-                        voice_files = glob.glob("/app/vibevoice/demo/voices/streaming_model/en-*.pt")
+                        # Fallback to any voice file
+                        voice_files = glob.glob("/app/vibevoice/demo/voices/streaming_model/*.pt")
                         if voice_files:
                             voice_path = voice_files[0]
-                            logger.warning(f"Speaker '{speaker_name}' not found, using default voice: {voice_path}")
                         else:
-                            # Fallback to any voice file
-                            voice_files = glob.glob("/app/vibevoice/demo/voices/streaming_model/*.pt")
-                            if voice_files:
-                                voice_path = voice_files[0]
-                                logger.warning(f"No English voice found, using default voice: {voice_path}")
-                            else:
-                                raise FileNotFoundError("No voice files found")
-                    
-                    logger.info(f"Loading voice preset from: {voice_path}")
-                    cached_prompt = torch.load(voice_path, map_location=self.model.device, weights_only=False)
-                    
-                    # Process the text using the correct method
-                    inputs = self.processor.process_input_with_cached_prompt(
-                        text=text,
-                        cached_prompt=cached_prompt,
-                        padding=True,
-                        return_tensors="pt",
-                        return_attention_mask=True
+                            raise FileNotFoundError("No voice files found")
+                
+                logger.info(f"Loading voice preset from: {voice_path}")
+                cached_prompt = torch.load(voice_path, map_location=self.model.device, weights_only=False)
+                
+                return voice_path, cached_prompt
+
+            def _prepare_inputs(self, text: str, prefilled_outputs):
+                """Prepare inputs like official demo"""
+                inputs = self.processor.process_input_with_cached_prompt(
+                    text=text,
+                    cached_prompt=prefilled_outputs,
+                    padding=True,
+                    return_tensors="pt",
+                    return_attention_mask=True
+                )
+                
+                # Move to model device
+                for key in inputs:
+                    if isinstance(inputs[key], torch.Tensor):
+                        inputs[key] = inputs[key].to(self.model.device)
+                
+                return inputs
+
+            def _run_generation(
+                self,
+                inputs,
+                audio_streamer,
+                errors,
+                cfg_scale: float,
+                do_sample: bool,
+                temperature: float,
+                top_p: float,
+                refresh_negative: bool,
+                prefilled_outputs,
+                stop_event,
+            ):
+                """Run generation like official demo"""
+                try:
+                    # Use the exact same parameters as official demo
+                    self.model.generate(
+                        **inputs,
+                        tokenizer=getattr(self.processor, 'text_tokenizer', None) or getattr(self.processor, 'tokenizer', None),
+                        all_prefilled_outputs=prefilled_outputs,
+                        max_new_tokens=None,
+                        do_sample=do_sample,
+                        temperature=temperature,
+                        top_p=top_p,
+                        cfg_scale=cfg_scale,
+                        stop_check_fn=stop_event.is_set,
+                        use_cache=True,
+                        output_attentions=False,
+                        output_hidden_states=False,
+                        return_dict_in_generate=True,
                     )
+                except Exception as exc:
+                    errors.append(exc)
+                    traceback.print_exc()
+                    audio_streamer.end()
+
+            def generate_streaming(
+                self, 
+                text: str, 
+                cfg_scale: float = 1.5,
+                do_sample: bool = False,
+                temperature: float = 0.9,
+                top_p: float = 0.9,
+                refresh_negative: bool = True,
+                inference_steps: Optional[int] = None,
+                voice_key: Optional[str] = None,
+                log_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+                stop_event: Optional[threading.Event] = None,
+            ) -> Iterator[np.ndarray]:
+                """Generate streaming audio from text using AudioStreamer - exactly like official demo"""
+                try:
+                    if not text.strip():
+                        return
+                    text = text.replace("'", "'")
                     
-                    # Move to model device
-                    for key in inputs:
-                        if isinstance(inputs[key], torch.Tensor):
-                            inputs[key] = inputs[key].to(self.model.device)
-                    
-                    # Create AudioStreamer for real-time streaming
-                    audio_streamer = AudioStreamer(batch_size=1, stop_signal=None, timeout=None)
-                    logger.info("AudioStreamer created, starting generation...")
-                    
-                    # Create stop event like official demo
-                    import threading
-                    import copy
-                    import time
-                    stop_event = threading.Event()
-                    
-                    # Start generation in a separate thread
-                    def run_generation():
+                    # Use voice_key like official demo
+                    selected_voice, prefilled_outputs = self._get_voice_resources(voice_key)
+
+                    def emit(event: str, **payload: Any) -> None:
+                        if log_callback:
+                            try:
+                                log_callback(event, **payload)
+                            except Exception as exc:
+                                print(f"[log_callback] Error while emitting {event}: {exc}")
+
+                    steps_to_use = 5  # Default inference steps
+                    if inference_steps is not None:
                         try:
-                            logger.info("Starting model.generate() in thread...")
-                            start_time = time.time()
-                            
-                            # CRITICAL: Configure noise scheduler exactly like official demo
-                            self.model.model.noise_scheduler = self.model.model.noise_scheduler.from_config(
-                                self.model.model.noise_scheduler.config,
-                                algorithm_type="sde-dpmsolver++",
-                                beta_schedule="squaredcos_cap_v2",
-                            )
-                            logger.info("Noise scheduler configured with sde-dpmsolver++")
-                            
-                            # Set inference steps RIGHT before generation (like official demo)
-                            self.model.set_ddpm_inference_steps(num_steps=inference_steps)
-                            
-                            self.model.generate(
-                                **inputs,
-                                max_new_tokens=None,  # Exactly like official demo
-                                cfg_scale=cfg_scale,
-                                tokenizer=self.processor.tokenizer,  # Exact tokenizer reference like official demo
-                                generation_config={
-                                    "do_sample": True,  # Official demo uses do_sample parameter
-                                    "temperature": 1.0,  # Fixed like official demo
-                                    "top_p": 0.9,  # Fixed like official demo
-                                },
-                                audio_streamer=audio_streamer,
-                                stop_check_fn=stop_event.is_set,  # CRITICAL: Missing piece from official demo!
-                                verbose=False,
-                                refresh_negative=True,
-                                all_prefilled_outputs=copy.deepcopy(cached_prompt),  # Exact like official demo
-                            )
-                            end_time = time.time()
-                            logger.info(f"Model generation completed in {end_time - start_time:.2f}s")
-                        except Exception as e:
-                            logger.error(f"Generation error: {e}")
-                            audio_streamer.end()
+                            parsed_steps = int(inference_steps)
+                            if parsed_steps > 0:
+                                steps_to_use = parsed_steps
+                        except (TypeError, ValueError):
+                            pass
                     
-                    thread = threading.Thread(target=run_generation, daemon=True)
+                    if self.model:
+                        self.model.set_ddpm_inference_steps(num_steps=steps_to_use)
+
+                    inputs = self._prepare_inputs(text, prefilled_outputs)
+                    audio_streamer = AudioStreamer(batch_size=1, stop_signal=None, timeout=None)
+                    errors: list = []
+                    stop_signal = stop_event or threading.Event()
+
+                    thread = threading.Thread(
+                        target=self._run_generation,
+                        kwargs={
+                            "inputs": inputs,
+                            "audio_streamer": audio_streamer,
+                            "errors": errors,
+                            "cfg_scale": cfg_scale,
+                            "do_sample": do_sample,
+                            "temperature": temperature,
+                            "top_p": top_p,
+                            "refresh_negative": refresh_negative,
+                            "prefilled_outputs": prefilled_outputs,
+                            "stop_event": stop_signal,
+                        },
+                        daemon=True,
+                    )
                     thread.start()
-                    
-                    chunks_sent = 0
-                    # Stream audio chunks as they're generated - use the same approach as official demo
+
+                    generated_samples = 0
+
                     try:
-                        logger.info("Getting audio stream...")
                         stream = audio_streamer.get_stream(0)
-                        
                         for audio_chunk in stream:
-                            logger.info(f"Received audio chunk: {type(audio_chunk)}, shape: {getattr(audio_chunk, 'shape', 'N/A')}")
-                            
                             if torch.is_tensor(audio_chunk):
                                 audio_chunk = audio_chunk.detach().cpu().to(torch.float32).numpy()
                             else:
                                 audio_chunk = np.asarray(audio_chunk, dtype=np.float32)
-                            
+
                             if audio_chunk.ndim > 1:
                                 audio_chunk = audio_chunk.reshape(-1)
-                            
-                            logger.info(f"Audio chunk shape after processing: {audio_chunk.shape}")
-                            
-                            # Yield float32 chunks exactly like official demo
+
+                            peak = np.max(np.abs(audio_chunk)) if audio_chunk.size else 0.0
+                            if peak > 1.0:
+                                audio_chunk = audio_chunk / peak
+
+                            generated_samples += int(audio_chunk.size)
+                            emit(
+                                "model_progress",
+                                generated_sec=generated_samples / 24000,
+                                chunk_sec=audio_chunk.size / 24000,
+                            )
+
                             chunk_to_yield = audio_chunk.astype(np.float32, copy=False)
-                            
-                            logger.info(f"Yielding chunk {chunks_sent + 1}: {chunk_to_yield.nbytes} bytes")
-                            chunks_sent += 1
-                            
-                            # Yield as float32 (like official demo)
                             yield chunk_to_yield
                     finally:
-                        # CRITICAL: Use official demo's cleanup sequence - call AFTER stream completes
-                        logger.info("Stream ended, performing cleanup...")
-                        stop_event.set()          # ✅ Signal to stop generation (AFTER stream ends)
-                        audio_streamer.end()       # ✅ End the audio streamer
-                        thread.join()              # ✅ Wait for thread completion
-                        logger.info(f"Generation completed, sent {chunks_sent} chunks total")
+                        stop_signal.set()
+                        audio_streamer.end()
+                        thread.join()
+                        if errors:
+                            emit("generation_error", message=str(errors[0]))
+                            raise errors[0]
                         
                 except Exception as e:
                     logger.error(f"Error in generate_streaming method: {e}")

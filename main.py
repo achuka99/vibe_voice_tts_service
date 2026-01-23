@@ -343,31 +343,20 @@ async def websocket_tts(websocket: WebSocket):
                 
                 logger.info(f"Inference params: CFG={cfg_scale}, Steps={inference_steps}")
                 
-                # Use the same official streaming method as Colab demo
-                from model_loader import StreamingTTSService
-                import threading
-                
-                # Create streaming service like official demo
-                service = StreamingTTSService(
-                    model_path=MODEL_PATH,
-                    device="cuda" if torch.cuda.is_available() else "cpu"
-                )
-                
-                stop_event = threading.Event()
-                
-                # Use official demo's streaming_tts approach
-                iterator = service.stream(
-                    text,
+                # Use our working generate_streaming method with official demo parameters
+                audio_chunks = model.generate_streaming(
+                    text=text,
+                    voice_key=speaker_name,  # Use voice_key parameter like official demo
                     cfg_scale=cfg_scale,
-                    inference_steps=inference_steps,
-                    voice_key=speaker_name,
-                    stop_event=stop_event,
+                    inference_steps=inference_steps
                 )
                 
                 chunk_count = 0
-                for chunk in iterator:
+                for chunk in audio_chunks:
                     # Convert to PCM16 exactly like official demo
-                    payload = service.chunk_to_pcm16(chunk)
+                    chunk = np.clip(chunk, -1.0, 1.0)
+                    pcm = (chunk * 32767.0).astype(np.int16)
+                    payload = pcm.tobytes()
                     
                     logger.info(f"Sending chunk {chunk_count + 1}: {len(payload)} bytes")
                     await websocket.send_bytes(payload)
