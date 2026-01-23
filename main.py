@@ -2,18 +2,19 @@
 VibeVoice-Realtime FastAPI Backend
 Production-ready API for real-time text-to-speech with automatic model downloading
 """
-from fastapi import FastAPI, WebSocket, HTTPException, WebSocketDisconnect
-from fastapi.middleware.cors import CORSMiddleware
+import logging
+import numpy as np
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field
 from typing import Optional, AsyncGenerator
 import asyncio
-import logging
 import os
 from pathlib import Path
 from huggingface_hub import snapshot_download
 import torch
-import numpy as np
 from model_loader import load_vibevoice_model
 
 # Configure logging
@@ -350,8 +351,13 @@ async def websocket_tts(websocket: WebSocket):
                 
                 chunk_count = 0
                 for chunk in audio_chunks:
-                    logger.info(f"Sending chunk {chunk_count + 1}: {len(chunk)} bytes")
-                    await websocket.send_bytes(chunk)
+                    # Convert to PCM16 just before sending (like official demo)
+                    chunk = np.clip(chunk, -1.0, 1.0)
+                    pcm = (chunk * 32767.0).astype(np.int16)
+                    payload = pcm.tobytes()
+                    
+                    logger.info(f"Sending chunk {chunk_count + 1}: {len(payload)} bytes")
+                    await websocket.send_bytes(payload)
                     chunk_count += 1
                 
                 logger.info(f"Sent {chunk_count} audio chunks")
