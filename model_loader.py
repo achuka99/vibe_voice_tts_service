@@ -394,7 +394,7 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                 self, 
                 text: str, 
                 cfg_scale: float = 1.5,
-                do_sample: bool = False,
+                do_sample: bool = True,  # ✅ Changed to True like official demo
                 temperature: float = 0.9,
                 top_p: float = 0.9,
                 refresh_negative: bool = True,
