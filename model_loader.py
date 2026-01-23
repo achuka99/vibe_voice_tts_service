@@ -417,12 +417,7 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                             
                             logger.info(f"Audio chunk shape after processing: {audio_chunk.shape}")
                             
-                            # Normalize and convert to PCM16 (exactly like official demo)
-                            peak = np.max(np.abs(audio_chunk)) if audio_chunk.size else 0.0
-                            if peak > 1.0:
-                                audio_chunk = audio_chunk / peak
-                            
-                            # Convert to int16 and yield as bytes (exactly like official demo)
+                            # Convert to PCM16 exactly like official demo
                             pcm16 = (audio_chunk * 32767.0).astype(np.int16)
                             
                             logger.info(f"Yielding chunk {chunks_sent + 1}: {pcm16.nbytes} bytes")
@@ -431,9 +426,9 @@ def load_vibevoice_model(model_path: str, device: str = "cpu"):
                             # Yield as bytes
                             yield pcm16.tobytes()
                     finally:
-                        # CRITICAL: Use official demo's cleanup sequence
+                        # CRITICAL: Use official demo's cleanup sequence - call AFTER stream completes
                         logger.info("Stream ended, performing cleanup...")
-                        stop_event.set()          # ✅ Signal to stop generation
+                        stop_event.set()          # ✅ Signal to stop generation (AFTER stream ends)
                         audio_streamer.end()       # ✅ End the audio streamer
                         thread.join()              # ✅ Wait for thread completion
                         logger.info(f"Generation completed, sent {chunks_sent} chunks total")
