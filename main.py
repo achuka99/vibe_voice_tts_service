@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 from huggingface_hub import snapshot_download
 import torch
+from fastapi.middleware.cors import CORSMiddleware
 from model_loader import load_vibevoice_model
 
 # Configure logging
